@@ -1969,6 +1969,93 @@ func (d *Document) GetParts() map[string][]byte {
 	return d.parts
 }
 
+// GetDocumentRelationships returns the document relationships
+// This is useful for merging documents with images
+func (d *Document) GetDocumentRelationships() *Relationships {
+	return d.documentRelationships
+}
+
+// MergePartsFrom copies parts (like images) from another document
+// This is useful when merging documents that contain images
+func (d *Document) MergePartsFrom(source *Document) {
+	if source == nil || source.parts == nil {
+		return
+	}
+	
+	if d.parts == nil {
+		d.parts = make(map[string][]byte)
+	}
+	
+	// Copy media files (images) from source to target
+	for name, data := range source.parts {
+		// Only copy media files, not document structure files
+		if len(name) > 11 && name[:11] == "word/media/" {
+			fmt.Printf("[Document.MergePartsFrom] Copying part: %s (%d bytes)\n", name, len(data))
+			d.parts[name] = data
+		}
+	}
+}
+
+// MergeRelationshipsFrom copies image relationships from another document
+// This is useful when merging documents that contain images
+func (d *Document) MergeRelationshipsFrom(source *Document) {
+	if source == nil || source.documentRelationships == nil {
+		return
+	}
+	
+	if d.documentRelationships == nil {
+		d.documentRelationships = &Relationships{
+			Xmlns:         "http://schemas.openxmlformats.org/package/2006/relationships",
+			Relationships: []Relationship{},
+		}
+	}
+	
+	// Copy image relationships from source
+	for _, rel := range source.documentRelationships.Relationships {
+		if rel.Type == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" {
+			// Check if this relationship already exists
+			exists := false
+			for _, existingRel := range d.documentRelationships.Relationships {
+				if existingRel.ID == rel.ID || existingRel.Target == rel.Target {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				fmt.Printf("[Document.MergeRelationshipsFrom] Copying relationship: %s -> %s\n", rel.ID, rel.Target)
+				d.documentRelationships.Relationships = append(d.documentRelationships.Relationships, rel)
+			}
+		}
+	}
+}
+
+// MergeContentTypesFrom copies content types (like image formats) from another document
+func (d *Document) MergeContentTypesFrom(source *Document) {
+	if source == nil || source.contentTypes == nil {
+		return
+	}
+	
+	if d.contentTypes == nil {
+		return
+	}
+	
+	// Copy image content type defaults
+	for _, def := range source.contentTypes.Defaults {
+		if def.Extension == "png" || def.Extension == "jpg" || def.Extension == "jpeg" || def.Extension == "gif" {
+			exists := false
+			for _, existingDef := range d.contentTypes.Defaults {
+				if existingDef.Extension == def.Extension {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				d.contentTypes.Defaults = append(d.contentTypes.Defaults, def)
+			}
+		}
+	}
+}
+
 // initializeStructure 初始化文档基础结构
 func (d *Document) initializeStructure() {
 	// 初始化 content types
