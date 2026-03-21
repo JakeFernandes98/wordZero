@@ -3259,22 +3259,59 @@ func (te *TemplateEngine) processImagePlaceholdersInParagraph(para *Paragraph, d
 		fullText += run.Text.Content
 	}
 
-	// 检查是否包含图片占位符（支持两种格式）
-	// 1. 原始模板格式：{{#image imageName}}
-	// 2. 渲染后格式：[IMAGE:imageName]
-	originalImagePattern := regexp.MustCompile(`\{\{#image\s+(\w+)\}\}`)
-	renderedImagePattern := regexp.MustCompile(`\[IMAGE:(\w+)\]`)
+	// 检查是否包含图片占位符（支持多种格式）
+	// 1. 原始模板格式：{{#image imageName}} 或 {{#image imageName width=80 height=60}}
+	// 2. 渲染后格式：[IMAGE:imageName] 或 [IMAGE:imageName:width:height]
+	// Width and height are in millimeters
+	originalImagePattern := regexp.MustCompile(`\{\{#image\s+(\w+)(?:\s+width=(\d+(?:\.\d+)?))?(?:\s+height=(\d+(?:\.\d+)?))?\}\}`)
+	renderedImagePattern := regexp.MustCompile(`\[IMAGE:(\w+)(?::(\d+(?:\.\d+)?))?(?::(\d+(?:\.\d+)?))?\]`)
 
 	originalMatches := originalImagePattern.FindAllStringSubmatch(fullText, -1)
 	renderedMatches := renderedImagePattern.FindAllStringSubmatch(fullText, -1)
 
+	// ImageMatch holds parsed image placeholder data
+	type ImageMatch struct {
+		FullMatch string
+		Name      string
+		Width     float64 // 0 means not specified
+		Height    float64 // 0 means not specified
+	}
+
 	// 合并两种格式的匹配结果
-	allMatches := make([][2]string, 0)
+	allMatches := make([]ImageMatch, 0)
 	for _, match := range originalMatches {
-		allMatches = append(allMatches, [2]string{match[0], match[1]})
+		im := ImageMatch{
+			FullMatch: match[0],
+			Name:      match[1],
+		}
+		if len(match) > 2 && match[2] != "" {
+			if w, err := strconv.ParseFloat(match[2], 64); err == nil {
+				im.Width = w
+			}
+		}
+		if len(match) > 3 && match[3] != "" {
+			if h, err := strconv.ParseFloat(match[3], 64); err == nil {
+				im.Height = h
+			}
+		}
+		allMatches = append(allMatches, im)
 	}
 	for _, match := range renderedMatches {
-		allMatches = append(allMatches, [2]string{match[0], match[1]})
+		im := ImageMatch{
+			FullMatch: match[0],
+			Name:      match[1],
+		}
+		if len(match) > 2 && match[2] != "" {
+			if w, err := strconv.ParseFloat(match[2], 64); err == nil {
+				im.Width = w
+			}
+		}
+		if len(match) > 3 && match[3] != "" {
+			if h, err := strconv.ParseFloat(match[3], 64); err == nil {
+				im.Height = h
+			}
+		}
+		allMatches = append(allMatches, im)
 	}
 
 	if len(allMatches) == 0 {
@@ -3287,9 +3324,9 @@ func (te *TemplateEngine) processImagePlaceholdersInParagraph(para *Paragraph, d
 
 	// 处理每个图片占位符
 	for _, match := range allMatches {
-		imageName := match[1]
-		matchStart := strings.Index(fullText[lastEnd:], match[0]) + lastEnd
-		matchEnd := matchStart + len(match[0])
+		imageName := match.Name
+		matchStart := strings.Index(fullText[lastEnd:], match.FullMatch) + lastEnd
+		matchEnd := matchStart + len(match.FullMatch)
 
 		// 添加图片占位符前的文本（如果有）
 		if matchStart > lastEnd {
@@ -3302,7 +3339,58 @@ func (te *TemplateEngine) processImagePlaceholdersInParagraph(para *Paragraph, d
 
 		// 创建图片段落
 		if imageData, exists := data.Images[imageName]; exists {
-			imagePara, err := te.createImageParagraph(imageData, doc)
+			// Apply width/height overrides from placeholder if specified
+			effectiveImageData := imageData
+			if match.Width > 0 || match.Height > 0 {
+				// Clone the image data to avoid modifying the original
+				effectiveImageData = &TemplateImageData{
+					FilePath: imageData.FilePath,
+					Data:     imageData.Data,
+					AltText:  imageData.AltText,
+					Title:    imageData.Title,
+				}
+				// Clone or create config
+				if imageData.Config != nil {
+					effectiveImageData.Config = &ImageConfig{
+						Size:      imageData.Config.Size,
+						Position:  imageData.Config.Position,
+						Alignment: imageData.Config.Alignment,
+						WrapText:  imageData.Config.WrapText,
+						OffsetX:   imageData.Config.OffsetX,
+						OffsetY:   imageData.Config.OffsetY,
+					}
+					// Clone size if exists
+					if imageData.Config.Size != nil {
+						effectiveImageData.Config.Size = &ImageSize{
+							Width:           imageData.Config.Size.Width,
+							Height:          imageData.Config.Size.Height,
+							KeepAspectRatio: imageData.Config.Size.KeepAspectRatio,
+						}
+					}
+				} else {
+					effectiveImageData.Config = &ImageConfig{
+						Position:  ImagePositionInline,
+						Alignment: AlignCenter,
+					}
+				}
+				// Apply overrides from placeholder
+				if effectiveImageData.Config.Size == nil {
+					effectiveImageData.Config.Size = &ImageSize{}
+				}
+				if match.Width > 0 {
+					effectiveImageData.Config.Size.Width = match.Width
+				}
+				if match.Height > 0 {
+					effectiveImageData.Config.Size.Height = match.Height
+				}
+				// If only one dimension specified, keep aspect ratio
+				if (match.Width > 0 && match.Height == 0) || (match.Width == 0 && match.Height > 0) {
+					effectiveImageData.Config.Size.KeepAspectRatio = true
+				} else if match.Width > 0 && match.Height > 0 {
+					effectiveImageData.Config.Size.KeepAspectRatio = false
+				}
+			}
+			imagePara, err := te.createImageParagraph(effectiveImageData, doc)
 			if err != nil {
 				return nil, fmt.Errorf("创建图片段落失败: %v", err)
 			}
