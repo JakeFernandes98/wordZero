@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zerx-lab/wordZero/pkg/document"
+	"github.com/ZeroHawkeye/wordZero/pkg/document"
 )
 
 // ExportOptions 导出选项配置

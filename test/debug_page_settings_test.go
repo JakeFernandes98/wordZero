@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/zerx-lab/wordZero/pkg/document"
+	"github.com/ZeroHawkeye/wordZero/pkg/document"
 )
 
 func TestDebugPageSettings(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/zerx-lab/wordZero/pkg/document"
+	"github.com/ZeroHawkeye/wordZero/pkg/document"
 )
 
 func main() {

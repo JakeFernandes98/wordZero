@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/zerx-lab/wordZero/pkg/markdown"
+	"github.com/ZeroHawkeye/wordZero/pkg/markdown"
 )
 
 // TestMarkdownMathFormulaConversion 测试Markdown数学公式转换

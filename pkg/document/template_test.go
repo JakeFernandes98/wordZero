@@ -1505,3 +1505,349 @@ func TestTemplateNumberingPropertiesPreservation(t *testing.T) {
 
 	t.Log("编号属性保留测试通过")
 }
+
+// TestDocumentLevelLoopsWithTables 测试文档级别循环包含表格
+func TestDocumentLevelLoopsWithTables(t *testing.T) {
+	engine := NewTemplateEngine()
+
+	// 创建包含表格的文档模板
+	doc := New()
+	doc.AddParagraph("{{#each items}}")
+	doc.AddParagraph("项目名称：{{name}}")
+
+	// 添加表格
+	tableConfig := &TableConfig{
+		Rows: 2,
+		Cols: 2,
+		Data: [][]string{
+			{"属性", "值"},
+			{"价格", "{{price}}"},
+		},
+	}
+	_, err := doc.AddTable(tableConfig)
+	if err != nil {
+		t.Fatalf("添加表格失败: %v", err)
+	}
+
+	doc.AddParagraph("{{/each}}")
+
+	// 加载模板
+	_, err = engine.LoadTemplateFromDocument("loop_with_table", doc)
+	if err != nil {
+		t.Fatalf("加载模板失败: %v", err)
+	}
+
+	// 准备数据
+	data := NewTemplateData()
+	items := []interface{}{
+		map[string]interface{}{
+			"name":  "产品A",
+			"price": "100",
+		},
+		map[string]interface{}{
+			"name":  "产品B",
+			"price": "200",
+		},
+	}
+	data.SetList("items", items)
+
+	// 渲染模板
+	resultDoc, err := engine.RenderTemplateToDocument("loop_with_table", data)
+	if err != nil {
+		t.Fatalf("渲染模板失败: %v", err)
+	}
+
+	// 验证结果
+	tableCount := 0
+	paragraphCount := 0
+	for _, element := range resultDoc.Body.Elements {
+		switch elem := element.(type) {
+		case *Paragraph:
+			paragraphCount++
+			fullText := ""
+			for _, run := range elem.Runs {
+				fullText += run.Text.Content
+			}
+			// 确保没有未处理的模板语法
+			if strings.Contains(fullText, "{{#each") || strings.Contains(fullText, "{{/each}}") {
+				t.Errorf("发现未处理的循环语法: %s", fullText)
+			}
+		case *Table:
+			tableCount++
+			// 检查表格内容
+			for _, row := range elem.Rows {
+				for _, cell := range row.Cells {
+					for _, para := range cell.Paragraphs {
+						fullText := ""
+						for _, run := range para.Runs {
+							fullText += run.Text.Content
+						}
+						if strings.Contains(fullText, "{{") {
+							t.Errorf("表格中发现未处理的模板语法: %s", fullText)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 应该有2个表格（每个循环项一个）
+	if tableCount != 2 {
+		t.Errorf("期望2个表格，实际 %d 个", tableCount)
+	}
+
+	t.Log("文档级别循环包含表格测试通过")
+}
+
+// TestMultiParagraphConditionals 测试跨段落的条件语句
+func TestMultiParagraphConditionals(t *testing.T) {
+	engine := NewTemplateEngine()
+
+	// 创建跨段落条件语句的文档模板
+	doc := New()
+	doc.AddParagraph("文档标题")
+	doc.AddParagraph("{{#if showDetails}}")
+	doc.AddParagraph("这是详细信息第一行")
+	doc.AddParagraph("这是详细信息第二行")
+	doc.AddParagraph("这是详细信息第三行")
+	doc.AddParagraph("{{/if}}")
+	doc.AddParagraph("文档结尾")
+
+	// 加载模板
+	_, err := engine.LoadTemplateFromDocument("multi_para_if", doc)
+	if err != nil {
+		t.Fatalf("加载模板失败: %v", err)
+	}
+
+	// 测试条件为真的情况
+	t.Run("条件为真", func(t *testing.T) {
+		data := NewTemplateData()
+		data.SetCondition("showDetails", true)
+
+		resultDoc, err := engine.RenderTemplateToDocument("multi_para_if", data)
+		if err != nil {
+			t.Fatalf("渲染模板失败: %v", err)
+		}
+
+		// 验证结果包含详细信息
+		foundDetails := false
+		for _, element := range resultDoc.Body.Elements {
+			if para, ok := element.(*Paragraph); ok {
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+				if strings.Contains(fullText, "详细信息第一行") {
+					foundDetails = true
+				}
+				// 确保没有未处理的模板语法
+				if strings.Contains(fullText, "{{#if") || strings.Contains(fullText, "{{/if}}") {
+					t.Errorf("发现未处理的条件语法: %s", fullText)
+				}
+			}
+		}
+
+		if !foundDetails {
+			t.Error("条件为真时应该包含详细信息")
+		}
+	})
+
+	// 测试条件为假的情况
+	t.Run("条件为假", func(t *testing.T) {
+		data := NewTemplateData()
+		data.SetCondition("showDetails", false)
+
+		resultDoc, err := engine.RenderTemplateToDocument("multi_para_if", data)
+		if err != nil {
+			t.Fatalf("渲染模板失败: %v", err)
+		}
+
+		// 验证结果不包含详细信息
+		for _, element := range resultDoc.Body.Elements {
+			if para, ok := element.(*Paragraph); ok {
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+				if strings.Contains(fullText, "详细信息") {
+					t.Errorf("条件为假时不应该包含详细信息: %s", fullText)
+				}
+			}
+		}
+	})
+
+	t.Log("跨段落条件语句测试通过")
+}
+
+// TestMultiParagraphConditionalsWithElse 测试跨段落的条件语句（带else）
+func TestMultiParagraphConditionalsWithElse(t *testing.T) {
+	engine := NewTemplateEngine()
+
+	// 创建带else的跨段落条件语句
+	doc := New()
+	doc.AddParagraph("报告标题")
+	doc.AddParagraph("{{#if isPremium}}")
+	doc.AddParagraph("高级用户专属内容")
+	doc.AddParagraph("更多高级功能")
+	doc.AddParagraph("{{else}}")
+	doc.AddParagraph("普通用户内容")
+	doc.AddParagraph("升级获取更多功能")
+	doc.AddParagraph("{{/if}}")
+	doc.AddParagraph("报告结尾")
+
+	// 加载模板
+	_, err := engine.LoadTemplateFromDocument("if_else_multi", doc)
+	if err != nil {
+		t.Fatalf("加载模板失败: %v", err)
+	}
+
+	// 测试条件为真（高级用户）
+	t.Run("高级用户", func(t *testing.T) {
+		data := NewTemplateData()
+		data.SetCondition("isPremium", true)
+
+		resultDoc, err := engine.RenderTemplateToDocument("if_else_multi", data)
+		if err != nil {
+			t.Fatalf("渲染模板失败: %v", err)
+		}
+
+		foundPremium := false
+		foundNormal := false
+		for _, element := range resultDoc.Body.Elements {
+			if para, ok := element.(*Paragraph); ok {
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+				if strings.Contains(fullText, "高级用户专属") {
+					foundPremium = true
+				}
+				if strings.Contains(fullText, "普通用户内容") {
+					foundNormal = true
+				}
+			}
+		}
+
+		if !foundPremium {
+			t.Error("高级用户应该看到高级内容")
+		}
+		if foundNormal {
+			t.Error("高级用户不应该看到普通用户内容")
+		}
+	})
+
+	// 测试条件为假（普通用户）
+	t.Run("普通用户", func(t *testing.T) {
+		data := NewTemplateData()
+		data.SetCondition("isPremium", false)
+
+		resultDoc, err := engine.RenderTemplateToDocument("if_else_multi", data)
+		if err != nil {
+			t.Fatalf("渲染模板失败: %v", err)
+		}
+
+		foundPremium := false
+		foundNormal := false
+		for _, element := range resultDoc.Body.Elements {
+			if para, ok := element.(*Paragraph); ok {
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+				if strings.Contains(fullText, "高级用户专属") {
+					foundPremium = true
+				}
+				if strings.Contains(fullText, "普通用户内容") {
+					foundNormal = true
+				}
+			}
+		}
+
+		if foundPremium {
+			t.Error("普通用户不应该看到高级内容")
+		}
+		if !foundNormal {
+			t.Error("普通用户应该看到普通用户内容")
+		}
+	})
+
+	t.Log("跨段落条件语句（带else）测试通过")
+}
+
+// TestConditionalsWithTables 测试条件语句包含表格
+func TestConditionalsWithTables(t *testing.T) {
+	engine := NewTemplateEngine()
+
+	// 创建包含表格的条件语句
+	doc := New()
+	doc.AddParagraph("报告")
+	doc.AddParagraph("{{#if showTable}}")
+
+	tableConfig := &TableConfig{
+		Rows: 2,
+		Cols: 2,
+		Data: [][]string{
+			{"列1", "列2"},
+			{"数据1", "数据2"},
+		},
+	}
+	_, err := doc.AddTable(tableConfig)
+	if err != nil {
+		t.Fatalf("添加表格失败: %v", err)
+	}
+
+	doc.AddParagraph("{{/if}}")
+	doc.AddParagraph("结束")
+
+	// 加载模板
+	_, err = engine.LoadTemplateFromDocument("if_with_table", doc)
+	if err != nil {
+		t.Fatalf("加载模板失败: %v", err)
+	}
+
+	// 测试条件为真
+	t.Run("显示表格", func(t *testing.T) {
+		data := NewTemplateData()
+		data.SetCondition("showTable", true)
+
+		resultDoc, err := engine.RenderTemplateToDocument("if_with_table", data)
+		if err != nil {
+			t.Fatalf("渲染模板失败: %v", err)
+		}
+
+		tableCount := 0
+		for _, element := range resultDoc.Body.Elements {
+			if _, ok := element.(*Table); ok {
+				tableCount++
+			}
+		}
+
+		if tableCount != 1 {
+			t.Errorf("条件为真时应该有1个表格，实际 %d 个", tableCount)
+		}
+	})
+
+	// 测试条件为假
+	t.Run("隐藏表格", func(t *testing.T) {
+		data := NewTemplateData()
+		data.SetCondition("showTable", false)
+
+		resultDoc, err := engine.RenderTemplateToDocument("if_with_table", data)
+		if err != nil {
+			t.Fatalf("渲染模板失败: %v", err)
+		}
+
+		tableCount := 0
+		for _, element := range resultDoc.Body.Elements {
+			if _, ok := element.(*Table); ok {
+				tableCount++
+			}
+		}
+
+		if tableCount != 0 {
+			t.Errorf("条件为假时不应该有表格，实际 %d 个", tableCount)
+		}
+	})
+
+	t.Log("条件语句包含表格测试通过")
+}

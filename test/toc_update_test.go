@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/zerx-lab/wordZero/pkg/document"
+	"github.com/ZeroHawkeye/wordZero/pkg/document"
 )
 
 // TestTOCUpdate 测试UpdateTOC功能

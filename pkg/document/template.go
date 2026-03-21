@@ -1199,6 +1199,15 @@ func (te *TemplateEngine) cloneRunProperties(source *RunProperties) *RunProperti
 		}
 	}
 
+	// 复制底纹/背景色 (w:shd)
+	if source.Shd != nil {
+		props.Shd = &RunShading{
+			Val:   source.Shd.Val,
+			Color: source.Shd.Color,
+			Fill:  source.Shd.Fill,
+		}
+	}
+
 	// 完整复制字体族属性，包括所有字体设置
 	if source.FontFamily != nil {
 		props.FontFamily = &FontFamily{
@@ -1799,8 +1808,14 @@ func (te *TemplateEngine) RenderTemplateToDocument(templateName string, data *Te
 
 // replaceVariablesInDocument 在文档结构中直接替换变量
 func (te *TemplateEngine) replaceVariablesInDocument(doc *Document, data *TemplateData) error {
-	// 首先处理文档级别的循环（跨段落）
+	// 首先处理文档级别的循环（跨段落和表格）
 	err := te.processDocumentLevelLoops(doc, data)
+	if err != nil {
+		return err
+	}
+
+	// 处理文档级别的条件语句（跨段落和表格）
+	err = te.processDocumentLevelConditionals(doc, data)
 	if err != nil {
 		return err
 	}
@@ -1836,6 +1851,244 @@ func (te *TemplateEngine) replaceVariablesInDocument(doc *Document, data *Templa
 	}
 
 	return nil
+}
+
+// processDocumentLevelConditionals 处理文档级别的条件语句（跨段落和表格）
+func (te *TemplateEngine) processDocumentLevelConditionals(doc *Document, data *TemplateData) error {
+	elements := doc.Body.Elements
+	newElements := make([]interface{}, 0)
+
+	i := 0
+	for i < len(elements) {
+		element := elements[i]
+
+		// 检查当前元素是否包含条件开始标记
+		ifStartPattern := regexp.MustCompile(`\{\{#if\s+(\w+)\}\}`)
+		var conditionName string
+		var hasIfStart bool
+
+		// 检查段落中的条件开始标记
+		if para, ok := element.(*Paragraph); ok {
+			fullText := ""
+			for _, run := range para.Runs {
+				fullText += run.Text.Content
+			}
+
+			matches := ifStartPattern.FindStringSubmatch(fullText)
+			if len(matches) > 1 {
+				conditionName = matches[1]
+				hasIfStart = true
+			}
+		}
+
+		// 检查表格中的条件开始标记
+		if table, ok := element.(*Table); ok {
+			condName, found := te.tableContainsIfStart(table)
+			if found {
+				conditionName = condName
+				hasIfStart = true
+			}
+		}
+
+		if hasIfStart {
+			// 找到条件结束位置，支持嵌套的if语句
+			ifEndIndex := -1
+			elseIndex := -1
+			templateElements := make([]interface{}, 0)
+			elseElements := make([]interface{}, 0)
+			depth := 1
+
+			// 收集条件模板元素
+			for j := i; j < len(elements); j++ {
+				var elementText string
+
+				if nextPara, ok := elements[j].(*Paragraph); ok {
+					for _, run := range nextPara.Runs {
+						elementText += run.Text.Content
+					}
+				} else if nextTable, ok := elements[j].(*Table); ok {
+					elementText = te.getTableFullText(nextTable)
+				}
+
+				// 检查嵌套的if开始
+				nestedIfMatches := ifStartPattern.FindAllString(elementText, -1)
+				if j > i {
+					depth += len(nestedIfMatches)
+				}
+
+				// 检查if结束
+				endIfCount := strings.Count(elementText, "{{/if}}")
+				depth -= endIfCount
+
+				// 检查else（只在当前深度为1时有效）
+				if depth == 1 && strings.Contains(elementText, "{{else}}") && elseIndex == -1 {
+					elseIndex = j
+				}
+
+				if depth == 0 {
+					ifEndIndex = j
+					break
+				}
+
+				// 收集元素到适当的列表
+				if elseIndex == -1 {
+					templateElements = append(templateElements, elements[j])
+				} else {
+					elseElements = append(elseElements, elements[j])
+				}
+			}
+
+			// 如果找到了结束标记，添加最后一个元素
+			if ifEndIndex >= 0 {
+				if elseIndex == -1 {
+					templateElements = append(templateElements, elements[ifEndIndex])
+				} else {
+					elseElements = append(elseElements, elements[ifEndIndex])
+				}
+			}
+
+			if ifEndIndex >= 0 {
+				// 评估条件
+				conditionMet := false
+				if condValue, exists := data.Conditions[conditionName]; exists {
+					conditionMet = condValue
+				}
+
+				// 根据条件选择要包含的元素
+				var elementsToInclude []interface{}
+				if conditionMet {
+					elementsToInclude = templateElements
+				} else if elseIndex >= 0 {
+					elementsToInclude = elseElements
+				}
+
+				// 处理选中的元素
+				for _, templateElement := range elementsToInclude {
+					switch templateElem := templateElement.(type) {
+					case *Paragraph:
+						newPara := te.cloneParagraph(templateElem)
+
+						// 处理段落文本
+						fullText := ""
+						for _, run := range newPara.Runs {
+							fullText += run.Text.Content
+						}
+
+						// 移除条件标记
+						content := fullText
+						content = regexp.MustCompile(`\{\{#if\s+\w+\}\}`).ReplaceAllString(content, "")
+						content = regexp.MustCompile(`\{\{/if\}\}`).ReplaceAllString(content, "")
+						content = strings.ReplaceAll(content, "{{else}}", "")
+
+						// 如果内容不为空或者原段落有内容，保留段落
+						if strings.TrimSpace(content) != "" || strings.TrimSpace(fullText) != "" {
+							if len(newPara.Runs) > 0 {
+								newPara.Runs[0].Text.Content = content
+								newPara.Runs = newPara.Runs[:1]
+							} else if content != "" {
+								newPara.Runs = []Run{{
+									Text: Text{Content: content},
+								}}
+							}
+							// 只有当内容不为空时才添加
+							if strings.TrimSpace(content) != "" {
+								newElements = append(newElements, newPara)
+							}
+						}
+
+					case *Table:
+						// 克隆表格并移除条件标记
+						newTable := te.cloneTable(templateElem)
+						te.removeConditionalMarkersFromTable(newTable)
+						newElements = append(newElements, newTable)
+					}
+				}
+
+				// 跳过条件模板元素
+				i = ifEndIndex + 1
+				continue
+			}
+		}
+
+		// 不是条件元素，直接添加
+		newElements = append(newElements, element)
+		i++
+	}
+
+	// 更新文档元素
+	doc.Body.Elements = newElements
+	return nil
+}
+
+// tableContainsIfStart 检查表格是否包含条件开始标记，返回条件名
+func (te *TemplateEngine) tableContainsIfStart(table *Table) (string, bool) {
+	ifPattern := regexp.MustCompile(`\{\{#if\s+(\w+)\}\}`)
+	for _, row := range table.Rows {
+		for _, cell := range row.Cells {
+			for _, para := range cell.Paragraphs {
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+				matches := ifPattern.FindStringSubmatch(fullText)
+				if len(matches) > 1 {
+					return matches[1], true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// getTableFullText 获取表格的完整文本内容
+func (te *TemplateEngine) getTableFullText(table *Table) string {
+	var result strings.Builder
+	for _, row := range table.Rows {
+		for _, cell := range row.Cells {
+			for _, para := range cell.Paragraphs {
+				for _, run := range para.Runs {
+					result.WriteString(run.Text.Content)
+				}
+			}
+		}
+	}
+	return result.String()
+}
+
+// removeConditionalMarkersFromTable 从表格中移除条件标记
+func (te *TemplateEngine) removeConditionalMarkersFromTable(table *Table) {
+	for i := range table.Rows {
+		for j := range table.Rows[i].Cells {
+			for k := range table.Rows[i].Cells[j].Paragraphs {
+				para := &table.Rows[i].Cells[j].Paragraphs[k]
+
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+
+				// 移除条件标记
+				content := fullText
+				content = regexp.MustCompile(`\{\{#if\s+\w+\}\}`).ReplaceAllString(content, "")
+				content = regexp.MustCompile(`\{\{/if\}\}`).ReplaceAllString(content, "")
+				content = strings.ReplaceAll(content, "{{else}}", "")
+
+				if len(para.Runs) > 0 {
+					para.Runs[0].Text.Content = content
+					para.Runs = para.Runs[:1]
+				} else if content != "" {
+					para.Runs = []Run{{
+						Text: Text{Content: content},
+					}}
+				}
+			}
+
+			// 递归处理嵌套表格
+			for k := range table.Rows[i].Cells[j].Tables {
+				te.removeConditionalMarkersFromTable(&table.Rows[i].Cells[j].Tables[k])
+			}
+		}
+	}
 }
 
 // replaceVariablesInHeadersFooters 在页眉页脚中替换变量
@@ -1900,7 +2153,7 @@ func (te *TemplateEngine) escapeXMLContent(s string) string {
 	return s
 }
 
-// processDocumentLevelLoops 处理文档级别的循环（跨段落）
+// processDocumentLevelLoops 处理文档级别的循环（跨段落和表格）
 func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *TemplateData) error {
 	elements := doc.Body.Elements
 	newElements := make([]interface{}, 0)
@@ -1929,9 +2182,11 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 				templateElements := make([]interface{}, 0)
 
 				// 收集循环模板元素（从当前位置到结束标记）
+				// 支持段落和表格
 				for j := i; j < len(elements); j++ {
 					templateElements = append(templateElements, elements[j])
 
+					// 检查段落中的结束标记
 					if nextPara, ok := elements[j].(*Paragraph); ok {
 						nextText := ""
 						for _, run := range nextPara.Runs {
@@ -1939,6 +2194,14 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 						}
 
 						if strings.Contains(nextText, "{{/each}}") {
+							loopEndIndex = j
+							break
+						}
+					}
+
+					// 检查表格中的结束标记
+					if nextTable, ok := elements[j].(*Table); ok {
+						if te.tableContainsText(nextTable, "{{/each}}") {
 							loopEndIndex = j
 							break
 						}
@@ -1953,8 +2216,9 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 							if itemMap, ok := item.(map[string]interface{}); ok {
 								// 复制模板元素并替换变量
 								for _, templateElement := range templateElements {
-									if templatePara, ok := templateElement.(*Paragraph); ok {
-										newPara := te.cloneParagraph(templatePara)
+									switch templateElem := templateElement.(type) {
+									case *Paragraph:
+										newPara := te.cloneParagraph(templateElem)
 
 										// 处理段落文本
 										fullText := ""
@@ -1973,6 +2237,9 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 											content = strings.ReplaceAll(content, placeholder, te.interfaceToString(value))
 										}
 
+										// 处理条件语句
+										content = te.renderLoopConditionals(content, itemMap)
+
 										// 如果内容不为空，创建新段落
 										if strings.TrimSpace(content) != "" {
 											// 保留原始段落的样式，不强制设置粗体 (Fix for Issue #88)
@@ -1988,6 +2255,12 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 											}
 											newElements = append(newElements, newPara)
 										}
+
+									case *Table:
+										// 克隆表格并替换变量
+										newTable := te.cloneTable(templateElem)
+										te.replaceVariablesInTableWithData(newTable, itemMap)
+										newElements = append(newElements, newTable)
 									}
 								}
 							}
@@ -1995,6 +2268,93 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 					}
 
 					// 跳过循环模板元素
+					i = loopEndIndex + 1
+					continue
+				}
+			}
+		}
+
+		// 检查表格是否包含文档级别循环开始标记
+		if table, ok := element.(*Table); ok {
+			listVarName, hasLoop := te.tableContainsLoopStart(table)
+			if hasLoop {
+				// 找到循环结束位置
+				loopEndIndex := -1
+				templateElements := make([]interface{}, 0)
+
+				// 收集循环模板元素
+				for j := i; j < len(elements); j++ {
+					templateElements = append(templateElements, elements[j])
+
+					// 检查段落中的结束标记
+					if nextPara, ok := elements[j].(*Paragraph); ok {
+						nextText := ""
+						for _, run := range nextPara.Runs {
+							nextText += run.Text.Content
+						}
+
+						if strings.Contains(nextText, "{{/each}}") {
+							loopEndIndex = j
+							break
+						}
+					}
+
+					// 检查表格中的结束标记
+					if nextTable, ok := elements[j].(*Table); ok {
+						if te.tableContainsText(nextTable, "{{/each}}") {
+							loopEndIndex = j
+							break
+						}
+					}
+				}
+
+				if loopEndIndex >= 0 {
+					// 处理循环
+					if listData, exists := data.Lists[listVarName]; exists {
+						for _, item := range listData {
+							if itemMap, ok := item.(map[string]interface{}); ok {
+								for _, templateElement := range templateElements {
+									switch templateElem := templateElement.(type) {
+									case *Paragraph:
+										newPara := te.cloneParagraph(templateElem)
+										fullText := ""
+										for _, run := range newPara.Runs {
+											fullText += run.Text.Content
+										}
+
+										content := fullText
+										content = regexp.MustCompile(`\{\{#each\s+\w+\}\}`).ReplaceAllString(content, "")
+										content = regexp.MustCompile(`\{\{/each\}\}`).ReplaceAllString(content, "")
+
+										for key, value := range itemMap {
+											placeholder := fmt.Sprintf("{{%s}}", key)
+											content = strings.ReplaceAll(content, placeholder, te.interfaceToString(value))
+										}
+
+										content = te.renderLoopConditionals(content, itemMap)
+
+										if strings.TrimSpace(content) != "" {
+											if len(newPara.Runs) > 0 {
+												newPara.Runs[0].Text.Content = content
+												newPara.Runs = newPara.Runs[:1]
+											} else {
+												newPara.Runs = []Run{{
+													Text: Text{Content: content},
+												}}
+											}
+											newElements = append(newElements, newPara)
+										}
+
+									case *Table:
+										newTable := te.cloneTable(templateElem)
+										te.replaceVariablesInTableWithData(newTable, itemMap)
+										newElements = append(newElements, newTable)
+									}
+								}
+							}
+						}
+					}
+
 					i = loopEndIndex + 1
 					continue
 				}
@@ -2009,6 +2369,90 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 	// 更新文档元素
 	doc.Body.Elements = newElements
 	return nil
+}
+
+// tableContainsText 检查表格是否包含指定文本
+func (te *TemplateEngine) tableContainsText(table *Table, text string) bool {
+	for _, row := range table.Rows {
+		for _, cell := range row.Cells {
+			for _, para := range cell.Paragraphs {
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+				if strings.Contains(fullText, text) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// tableContainsLoopStart 检查表格是否包含循环开始标记，返回列表变量名
+func (te *TemplateEngine) tableContainsLoopStart(table *Table) (string, bool) {
+	eachPattern := regexp.MustCompile(`\{\{#each\s+(\w+)\}\}`)
+	for _, row := range table.Rows {
+		for _, cell := range row.Cells {
+			for _, para := range cell.Paragraphs {
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+				matches := eachPattern.FindStringSubmatch(fullText)
+				if len(matches) > 1 {
+					return matches[1], true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// replaceVariablesInTableWithData 使用数据映射替换表格中的变量
+func (te *TemplateEngine) replaceVariablesInTableWithData(table *Table, itemMap map[string]interface{}) {
+	for i := range table.Rows {
+		for j := range table.Rows[i].Cells {
+			for k := range table.Rows[i].Cells[j].Paragraphs {
+				para := &table.Rows[i].Cells[j].Paragraphs[k]
+
+				// 合并所有Run的文本
+				fullText := ""
+				for _, run := range para.Runs {
+					fullText += run.Text.Content
+				}
+
+				// 移除循环标记
+				content := fullText
+				content = regexp.MustCompile(`\{\{#each\s+\w+\}\}`).ReplaceAllString(content, "")
+				content = regexp.MustCompile(`\{\{/each\}\}`).ReplaceAllString(content, "")
+
+				// 替换变量
+				for key, value := range itemMap {
+					placeholder := fmt.Sprintf("{{%s}}", key)
+					content = strings.ReplaceAll(content, placeholder, te.interfaceToString(value))
+				}
+
+				// 处理条件语句
+				content = te.renderLoopConditionals(content, itemMap)
+
+				// 更新段落内容
+				if len(para.Runs) > 0 {
+					para.Runs[0].Text.Content = content
+					para.Runs = para.Runs[:1]
+				} else if content != "" {
+					para.Runs = []Run{{
+						Text: Text{Content: content},
+					}}
+				}
+			}
+
+			// 递归处理嵌套表格
+			for k := range table.Rows[i].Cells[j].Tables {
+				te.replaceVariablesInTableWithData(&table.Rows[i].Cells[j].Tables[k], itemMap)
+			}
+		}
+	}
 }
 
 // replaceVariablesInParagraph 在段落中替换变量（改进版本，更好地保持样式）

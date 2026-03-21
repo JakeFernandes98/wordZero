@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zerx-lab/wordZero/pkg/style"
+	"github.com/ZeroHawkeye/wordZero/pkg/style"
 )
 
 // Document 表示一个Word文档
@@ -255,18 +255,27 @@ func (r *Run) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 // RunProperties 文本属性
 // 注意：字段顺序必须符合OpenXML标准，w:rFonts必须在w:color之前
 type RunProperties struct {
-	XMLName    xml.Name    `xml:"w:rPr"`
-	FontFamily *FontFamily `xml:"w:rFonts,omitempty"`
-	Bold       *Bold       `xml:"w:b,omitempty"`
-	BoldCs     *BoldCs     `xml:"w:bCs,omitempty"`
-	Italic     *Italic     `xml:"w:i,omitempty"`
-	ItalicCs   *ItalicCs   `xml:"w:iCs,omitempty"`
-	Underline  *Underline  `xml:"w:u,omitempty"`
-	Strike     *Strike     `xml:"w:strike,omitempty"`
-	Color      *Color      `xml:"w:color,omitempty"`
-	FontSize   *FontSize   `xml:"w:sz,omitempty"`
-	FontSizeCs *FontSizeCs `xml:"w:szCs,omitempty"`
-	Highlight  *Highlight  `xml:"w:highlight,omitempty"`
+	XMLName    xml.Name     `xml:"w:rPr"`
+	FontFamily *FontFamily  `xml:"w:rFonts,omitempty"`
+	Bold       *Bold        `xml:"w:b,omitempty"`
+	BoldCs     *BoldCs      `xml:"w:bCs,omitempty"`
+	Italic     *Italic      `xml:"w:i,omitempty"`
+	ItalicCs   *ItalicCs    `xml:"w:iCs,omitempty"`
+	Underline  *Underline   `xml:"w:u,omitempty"`
+	Strike     *Strike      `xml:"w:strike,omitempty"`
+	Color      *Color       `xml:"w:color,omitempty"`
+	FontSize   *FontSize    `xml:"w:sz,omitempty"`
+	FontSizeCs *FontSizeCs  `xml:"w:szCs,omitempty"`
+	Highlight  *Highlight   `xml:"w:highlight,omitempty"`
+	Shd        *RunShading  `xml:"w:shd,omitempty"`
+}
+
+// RunShading 文本底纹/背景色
+type RunShading struct {
+	XMLName xml.Name `xml:"w:shd"`
+	Val     string   `xml:"w:val,attr,omitempty"`
+	Color   string   `xml:"w:color,attr,omitempty"`
+	Fill    string   `xml:"w:fill,attr,omitempty"`
 }
 
 // Bold 粗体
