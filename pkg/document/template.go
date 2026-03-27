@@ -1102,6 +1102,11 @@ func (te *TemplateEngine) cloneParagraphProperties(source *ParagraphProperties) 
 		}
 	}
 
+	// 复制大纲级别
+	if source.OutlineLevel != nil {
+		props.OutlineLevel = &OutlineLevel{Val: source.OutlineLevel.Val}
+	}
+
 	return props
 }
 

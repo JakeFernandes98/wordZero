@@ -261,7 +261,20 @@ func (d *Document) collectHeadings(maxLevel int) []TOCEntry {
 
 // getHeadingLevel 获取段落的标题级别
 func (d *Document) getHeadingLevel(paragraph *Paragraph) int {
-	if paragraph.Properties != nil && paragraph.Properties.ParagraphStyle != nil {
+	if paragraph.Properties == nil {
+		return 0
+	}
+	
+	// First check OutlineLevel property (most reliable)
+	if paragraph.Properties.OutlineLevel != nil && paragraph.Properties.OutlineLevel.Val != "" {
+		level := parseInt(paragraph.Properties.OutlineLevel.Val)
+		if level >= 0 && level <= 8 {
+			return level + 1 // OutlineLevel is 0-based, heading levels are 1-based
+		}
+	}
+	
+	// Then check ParagraphStyle
+	if paragraph.Properties.ParagraphStyle != nil {
 		styleVal := paragraph.Properties.ParagraphStyle.Val
 
 		// 根据样式ID映射标题级别 - 支持数字ID

@@ -2539,6 +2539,15 @@ func (d *Document) parseParagraphProperties(decoder *xml.Decoder, paragraph *Par
 					return err
 				}
 				paragraph.Properties.NumberingProperties = numPr
+			case "outlineLvl":
+				// 大纲级别
+				val := getAttributeValue(t.Attr, "val")
+				if val != "" {
+					paragraph.Properties.OutlineLevel = &OutlineLevel{Val: val}
+				}
+				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+					return err
+				}
 			case "sectPr":
 				// 一些文档将节属性存储在段落属性中
 				sectPr, err := d.parseSectionProperties(decoder, t)
