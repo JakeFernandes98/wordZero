@@ -1975,8 +1975,233 @@ func (d *Document) GetDocumentRelationships() *Relationships {
 	return d.documentRelationships
 }
 
+// MergeDocumentFrom merges content from another document, handling image conflicts
+// Returns a map of old relationship IDs to new relationship IDs for updating element references
+func (d *Document) MergeDocumentFrom(source *Document) map[string]string {
+	if source == nil {
+		return nil
+	}
+	
+	relIDMap := make(map[string]string)
+	
+	// First, find the highest image number in the target document
+	highestImageNum := 0
+	if d.parts != nil {
+		for name := range d.parts {
+			if len(name) > 11 && name[:11] == "word/media/" {
+				// Extract image number from name like "word/media/image5.png"
+				baseName := name[11:] // "image5.png"
+				var num int
+				var ext string
+				if _, err := fmt.Sscanf(baseName, "image%d.%s", &num, &ext); err == nil {
+					if num > highestImageNum {
+						highestImageNum = num
+					}
+				}
+			}
+		}
+	}
+	
+	// Also check relationships for highest rId number
+	highestRId := 0
+	if d.documentRelationships != nil {
+		for _, rel := range d.documentRelationships.Relationships {
+			var num int
+			if _, err := fmt.Sscanf(rel.ID, "rId%d", &num); err == nil {
+				if num > highestRId {
+					highestRId = num
+				}
+			}
+		}
+	}
+	
+	// Initialize parts map if needed
+	if d.parts == nil {
+		d.parts = make(map[string][]byte)
+	}
+	
+	// Initialize relationships if needed
+	if d.documentRelationships == nil {
+		d.documentRelationships = &Relationships{
+			Xmlns:         "http://schemas.openxmlformats.org/package/2006/relationships",
+			Relationships: []Relationship{},
+		}
+	}
+	
+	// Process source images and relationships
+	if source.parts != nil && source.documentRelationships != nil {
+		// Build a map of source targets to their data
+		sourceImageData := make(map[string][]byte)
+		for name, data := range source.parts {
+			if len(name) > 11 && name[:11] == "word/media/" {
+				target := name[5:] // "media/image1.png"
+				sourceImageData[target] = data
+			}
+		}
+		
+		// Process each image relationship from source
+		for _, rel := range source.documentRelationships.Relationships {
+			if rel.Type != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" {
+				continue
+			}
+			
+			// Get the image data for this relationship
+			imageData, hasData := sourceImageData[rel.Target]
+			if !hasData {
+				continue
+			}
+			
+			// Check if we already have this exact image (by content)
+			existingTarget := ""
+			for name, data := range d.parts {
+				if len(name) > 11 && name[:11] == "word/media/" {
+					if len(data) == len(imageData) {
+						// Simple content comparison
+						same := true
+						for i := range data {
+							if data[i] != imageData[i] {
+								same = false
+								break
+							}
+						}
+						if same {
+							existingTarget = name[5:] // "media/image1.png"
+							break
+						}
+					}
+				}
+			}
+			
+			if existingTarget != "" {
+				// Image already exists, find its relationship ID
+				for _, existingRel := range d.documentRelationships.Relationships {
+					if existingRel.Target == existingTarget {
+						relIDMap[rel.ID] = existingRel.ID
+						fmt.Printf("[Document.MergeDocumentFrom] Reusing existing image: %s -> %s (rId: %s -> %s)\n", 
+							rel.Target, existingTarget, rel.ID, existingRel.ID)
+						break
+					}
+				}
+			} else {
+				// Need to add new image with unique name
+				highestImageNum++
+				highestRId++
+				
+				// Determine extension
+				ext := "png"
+				if idx := len(rel.Target) - 4; idx > 0 {
+					ext = rel.Target[idx+1:]
+				}
+				
+				newTarget := fmt.Sprintf("media/image%d.%s", highestImageNum, ext)
+				newRId := fmt.Sprintf("rId%d", highestRId)
+				
+				// Add the image data
+				d.parts["word/"+newTarget] = imageData
+				
+				// Add the relationship
+				newRel := Relationship{
+					ID:     newRId,
+					Type:   rel.Type,
+					Target: newTarget,
+				}
+				d.documentRelationships.Relationships = append(d.documentRelationships.Relationships, newRel)
+				
+				relIDMap[rel.ID] = newRId
+				fmt.Printf("[Document.MergeDocumentFrom] Added new image: %s -> %s (rId: %s -> %s)\n", 
+					rel.Target, newTarget, rel.ID, newRId)
+			}
+		}
+	}
+	
+	// Merge content types
+	if source.contentTypes != nil && d.contentTypes != nil {
+		for _, def := range source.contentTypes.Defaults {
+			if def.Extension == "png" || def.Extension == "jpg" || def.Extension == "jpeg" || def.Extension == "gif" {
+				exists := false
+				for _, existingDef := range d.contentTypes.Defaults {
+					if existingDef.Extension == def.Extension {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					d.contentTypes.Defaults = append(d.contentTypes.Defaults, def)
+				}
+			}
+		}
+	}
+	
+	return relIDMap
+}
+
+// UpdateElementImageReferences updates image references in elements using the provided ID map
+func UpdateElementImageReferences(element interface{}, relIDMap map[string]string) {
+	if relIDMap == nil || len(relIDMap) == 0 {
+		return
+	}
+	
+	switch e := element.(type) {
+	case *Paragraph:
+		if e == nil || e.Runs == nil {
+			return
+		}
+		for _, run := range e.Runs {
+			if run.Drawing != nil {
+				updateDrawingReferences(run.Drawing, relIDMap)
+			}
+		}
+	case *Table:
+		if e == nil || e.Rows == nil {
+			return
+		}
+		for _, row := range e.Rows {
+			if row.Cells == nil {
+				continue
+			}
+			for _, cell := range row.Cells {
+				if cell.Paragraphs == nil {
+					continue
+				}
+				for _, para := range cell.Paragraphs {
+					UpdateElementImageReferences(para, relIDMap)
+				}
+			}
+		}
+	}
+}
+
+func updateDrawingReferences(drawing *DrawingElement, relIDMap map[string]string) {
+	if drawing == nil {
+		return
+	}
+	
+	// Check inline drawing
+	if drawing.Inline != nil && drawing.Inline.Graphic != nil && 
+	   drawing.Inline.Graphic.GraphicData != nil && drawing.Inline.Graphic.GraphicData.Pic != nil &&
+	   drawing.Inline.Graphic.GraphicData.Pic.BlipFill != nil && drawing.Inline.Graphic.GraphicData.Pic.BlipFill.Blip != nil {
+		blip := drawing.Inline.Graphic.GraphicData.Pic.BlipFill.Blip
+		if newID, ok := relIDMap[blip.Embed]; ok {
+			fmt.Printf("[UpdateElementImageReferences] Updating inline image ref: %s -> %s\n", blip.Embed, newID)
+			blip.Embed = newID
+		}
+	}
+	
+	// Check anchor drawing
+	if drawing.Anchor != nil && drawing.Anchor.Graphic != nil && 
+	   drawing.Anchor.Graphic.GraphicData != nil && drawing.Anchor.Graphic.GraphicData.Pic != nil &&
+	   drawing.Anchor.Graphic.GraphicData.Pic.BlipFill != nil && drawing.Anchor.Graphic.GraphicData.Pic.BlipFill.Blip != nil {
+		blip := drawing.Anchor.Graphic.GraphicData.Pic.BlipFill.Blip
+		if newID, ok := relIDMap[blip.Embed]; ok {
+			fmt.Printf("[UpdateElementImageReferences] Updating anchor image ref: %s -> %s\n", blip.Embed, newID)
+			blip.Embed = newID
+		}
+	}
+}
+
 // MergePartsFrom copies parts (like images) from another document
 // This is useful when merging documents that contain images
+// DEPRECATED: Use MergeDocumentFrom instead for proper conflict handling
 func (d *Document) MergePartsFrom(source *Document) {
 	if source == nil || source.parts == nil {
 		return
@@ -1998,6 +2223,7 @@ func (d *Document) MergePartsFrom(source *Document) {
 
 // MergeRelationshipsFrom copies image relationships from another document
 // This is useful when merging documents that contain images
+// DEPRECATED: Use MergeDocumentFrom instead for proper conflict handling
 func (d *Document) MergeRelationshipsFrom(source *Document) {
 	if source == nil || source.documentRelationships == nil {
 		return
