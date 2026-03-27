@@ -780,16 +780,24 @@ func (d *Document) addFooterReference(footerType HeaderFooterType, footerID stri
 
 // getSectionPropertiesForHeaderFooter 获取或创建带页眉页脚支持的节属性
 func (d *Document) getSectionPropertiesForHeaderFooter() *SectionProperties {
-	// 查找文档中是否已存在节属性
+	// 查找文档中最后一个节属性（MarshalXML uses the last one）
+	var lastSectPr *SectionProperties
+	var lastIndex int = -1
+	
 	for i, element := range d.Body.Elements {
 		if sectPr, ok := element.(*SectionProperties); ok {
-			// 确保设置了关系命名空间
-			if sectPr.XmlnsR == "" {
-				sectPr.XmlnsR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-			}
-			fmt.Printf("[getSectionPropertiesForHeaderFooter] Found existing sectPr at index %d\n", i)
-			return sectPr
+			lastSectPr = sectPr
+			lastIndex = i
 		}
+	}
+	
+	if lastSectPr != nil {
+		// 确保设置了关系命名空间
+		if lastSectPr.XmlnsR == "" {
+			lastSectPr.XmlnsR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+		}
+		fmt.Printf("[getSectionPropertiesForHeaderFooter] Found existing sectPr at index %d\n", lastIndex)
+		return lastSectPr
 	}
 
 	// 如果不存在，创建新的节属性
