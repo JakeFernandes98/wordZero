@@ -9,13 +9,17 @@ import (
 
 // TOCConfig 目录配置
 type TOCConfig struct {
-	Title          string // 目录标题，默认为"目录"
-	MaxLevel       int    // 最大级别，默认为3（显示1-3级标题）
-	ShowPageNum    bool   // 是否显示页码，默认为true
-	RightAlign     bool   // 页码是否右对齐，默认为true
-	UseHyperlink   bool   // 是否使用超链接，默认为true
-	DotLeader      bool   // 是否使用点状引导线，默认为true
-	InsertPosition int    // 插入位置（元素索引），-1表示自动（开头或现有TOC位置）
+	Title          string  // 目录标题，默认为"目录"
+	MaxLevel       int     // 最大级别，默认为3（显示1-3级标题）
+	ShowPageNum    bool    // 是否显示页码，默认为true
+	RightAlign     bool    // 页码是否右对齐，默认为true
+	UseHyperlink   bool    // 是否使用超链接，默认为true
+	DotLeader      bool    // 是否使用点状引导线，默认为true
+	InsertPosition int     // 插入位置（元素索引），-1表示自动（开头或现有TOC位置）
+	FontFamily     string  // 字体名称（如 "Open Sans", "Arial"），空则使用默认
+	FontSize       int     // 字体大小（磅），0则使用默认
+	TitleFontSize  int     // 标题字体大小（磅），0则使用默认
+	IndentPerLevel float64 // 每级缩进量（磅），0则使用默认（720 twips = 0.5 inch）
 }
 
 // TOCEntry 目录条目
@@ -72,7 +76,11 @@ func DefaultTOCConfig() *TOCConfig {
 		RightAlign:     true,
 		UseHyperlink:   true,
 		DotLeader:      true,
-		InsertPosition: -1, // Auto: beginning or existing TOC position
+		InsertPosition: -1,     // Auto: beginning or existing TOC position
+		FontFamily:     "",     // Use default (Calibri)
+		FontSize:       0,      // Use default (11pt)
+		TitleFontSize:  0,      // Use default (16pt)
+		IndentPerLevel: 0,      // Use default (720 twips = 0.5 inch per level)
 	}
 }
 
@@ -638,12 +646,35 @@ func (d *Document) ListHeadings() []TOCEntry {
 func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []interface{} {
 	var elements []interface{}
 
+	// Determine font settings
+	fontFamily := config.FontFamily
+	if fontFamily == "" {
+		fontFamily = "Calibri"
+	}
+	
+	fontSize := config.FontSize
+	if fontSize <= 0 {
+		fontSize = 11 // Default 11pt
+	}
+	fontSizeVal := fmt.Sprintf("%d", fontSize*2) // Word uses half-points
+	
+	titleFontSize := config.TitleFontSize
+	if titleFontSize <= 0 {
+		titleFontSize = 16 // Default 16pt for title
+	}
+	titleFontSizeVal := fmt.Sprintf("%d", titleFontSize*2)
+	
+	indentPerLevel := config.IndentPerLevel
+	if indentPerLevel <= 0 {
+		indentPerLevel = 720 // Default 720 twips = 0.5 inch
+	}
+
 	// 创建目录SDT容器
 	tocSDT := &SDT{
 		Properties: &SDTProperties{
 			RunPr: &RunProperties{
-				FontFamily: &FontFamily{ASCII: "宋体", HAnsi: "宋体", EastAsia: "宋体", CS: "Times New Roman"},
-				FontSize:   &FontSize{Val: "21"},
+				FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+				FontSize:   &FontSize{Val: fontSizeVal},
 			},
 			ID:    &SDTID{Val: "147458718"},
 			Color: &SDTColor{Val: "DBDBDB"},
@@ -654,10 +685,10 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 		},
 		EndPr: &SDTEndPr{
 			RunPr: &RunProperties{
-				FontFamily: &FontFamily{ASCII: "Calibri", HAnsi: "Calibri", EastAsia: "宋体", CS: "Times New Roman"},
+				FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
 				Bold:       &Bold{},
 				Color:      &Color{Val: "2F5496"},
-				FontSize:   &FontSize{Val: "32"},
+				FontSize:   &FontSize{Val: titleFontSizeVal},
 			},
 		},
 		Content: &SDTContent{
@@ -670,10 +701,10 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 		Properties: &ParagraphProperties{
 			Spacing: &Spacing{
 				Before: "0",
-				After:  "0",
-				Line:   "240",
+				After:  "200", // Add some space after title
+				Line:   "276", // 1.15 line spacing
 			},
-			Justification: &Justification{Val: "center"},
+			Justification: &Justification{Val: "left"}, // Left align title
 			Indentation: &Indentation{
 				Left:      "0",
 				Right:     "0",
@@ -684,8 +715,9 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 			{
 				Text: Text{Content: config.Title},
 				Properties: &RunProperties{
-					FontFamily: &FontFamily{ASCII: "宋体"},
-					FontSize:   &FontSize{Val: "21"},
+					FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+					FontSize:   &FontSize{Val: titleFontSizeVal},
+					Bold:       &Bold{},
 				},
 			},
 		},
@@ -713,9 +745,10 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 	// 添加TOC域开始
 	tocFieldPara.Runs = append(tocFieldPara.Runs, Run{
 		Properties: &RunProperties{
-			Bold:     &Bold{},
-			Color:    &Color{Val: "2F5496"},
-			FontSize: &FontSize{Val: "32"},
+			FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+			Bold:       &Bold{},
+			Color:      &Color{Val: "2F5496"},
+			FontSize:   &FontSize{Val: titleFontSizeVal},
 		},
 		FieldChar: &FieldChar{
 			FieldCharType: "begin",
@@ -726,9 +759,10 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 	instrContent := fmt.Sprintf("TOC \\o \"1-%d\" \\h \\u", config.MaxLevel)
 	tocFieldPara.Runs = append(tocFieldPara.Runs, Run{
 		Properties: &RunProperties{
-			Bold:     &Bold{},
-			Color:    &Color{Val: "2F5496"},
-			FontSize: &FontSize{Val: "32"},
+			FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+			Bold:       &Bold{},
+			Color:      &Color{Val: "2F5496"},
+			FontSize:   &FontSize{Val: titleFontSizeVal},
 		},
 		InstrText: &InstrText{
 			Space:   "preserve",
@@ -739,9 +773,10 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 	// 添加TOC域分隔符
 	tocFieldPara.Runs = append(tocFieldPara.Runs, Run{
 		Properties: &RunProperties{
-			Bold:     &Bold{},
-			Color:    &Color{Val: "2F5496"},
-			FontSize: &FontSize{Val: "32"},
+			FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+			Bold:       &Bold{},
+			Color:      &Color{Val: "2F5496"},
+			FontSize:   &FontSize{Val: titleFontSizeVal},
 		},
 		FieldChar: &FieldChar{
 			FieldCharType: "separate",
@@ -752,7 +787,7 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 
 	// 为每个条目创建超链接段落
 	for _, entry := range entries {
-		entryPara := d.createTOCEntryWithFields(entry, config)
+		entryPara := d.createTOCEntryWithFieldsStyled(entry, config, fontFamily, fontSizeVal, indentPerLevel)
 		tocSDT.Content.Elements = append(tocSDT.Content.Elements, entryPara)
 	}
 
@@ -889,6 +924,147 @@ func (d *Document) createTOCEntryWithFields(entry TOCEntry, config *TOCConfig) *
 		Properties: &RunProperties{
 			Color: &Color{Val: "2F5496"},
 		},
+		FieldChar: &FieldChar{
+			FieldCharType: "end",
+		},
+	})
+
+	return para
+}
+
+// createTOCEntryWithFieldsStyled 创建带样式的目录条目
+func (d *Document) createTOCEntryWithFieldsStyled(entry TOCEntry, config *TOCConfig, fontFamily string, fontSizeVal string, indentPerLevel float64) *Paragraph {
+	// 确定目录样式ID
+	var styleVal string
+	switch entry.Level {
+	case 1:
+		styleVal = "13" // TOC 1
+	case 2:
+		styleVal = "14" // TOC 2
+	case 3:
+		styleVal = "15" // TOC 3
+	default:
+		styleVal = fmt.Sprintf("%d", 12+entry.Level)
+	}
+
+	// Calculate indentation based on level (level 1 = no indent, level 2 = 1x indent, etc.)
+	leftIndent := fmt.Sprintf("%d", int(float64(entry.Level-1)*indentPerLevel))
+
+	para := &Paragraph{
+		Properties: &ParagraphProperties{
+			ParagraphStyle: &ParagraphStyle{Val: styleVal},
+			Tabs: &Tabs{
+				Tabs: []TabDef{
+					{
+						Val:    "right",
+						Leader: "dot",
+						Pos:    "8640",
+					},
+				},
+			},
+			Indentation: &Indentation{
+				Left: leftIndent,
+			},
+			Spacing: &Spacing{
+				Before: "60",  // Small space before each entry
+				After:  "60",  // Small space after each entry
+				Line:   "276", // 1.15 line spacing
+			},
+		},
+		Runs: []Run{},
+	}
+
+	// 为每个条目生成唯一的书签ID
+	anchor := fmt.Sprintf("_Toc%d", generateUniqueID(entry.Text))
+
+	// Run properties for this entry
+	runProps := &RunProperties{
+		FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+		FontSize:   &FontSize{Val: fontSizeVal},
+	}
+	
+	// Make level 1 entries bold
+	if entry.Level == 1 {
+		runProps.Bold = &Bold{}
+	}
+
+	// 创建超链接域开始
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		FieldChar: &FieldChar{
+			FieldCharType: "begin",
+		},
+	})
+
+	// 添加超链接指令
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		InstrText: &InstrText{
+			Space:   "preserve",
+			Content: fmt.Sprintf(" HYPERLINK \\l %s ", anchor),
+		},
+	})
+
+	// 超链接域分隔符
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		FieldChar: &FieldChar{
+			FieldCharType: "separate",
+		},
+	})
+
+	// 添加标题文本
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		Text:       Text{Content: entry.Text},
+	})
+
+	// 添加制表符
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		Text:       Text{Content: "\t"},
+	})
+
+	// 添加页码引用域
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		FieldChar: &FieldChar{
+			FieldCharType: "begin",
+		},
+	})
+
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		InstrText: &InstrText{
+			Space:   "preserve",
+			Content: fmt.Sprintf(" PAGEREF %s \\h ", anchor),
+		},
+	})
+
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		FieldChar: &FieldChar{
+			FieldCharType: "separate",
+		},
+	})
+
+	// 页码文本
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		Text:       Text{Content: fmt.Sprintf("%d", entry.PageNum)},
+	})
+
+	// 页码域结束
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
+		FieldChar: &FieldChar{
+			FieldCharType: "end",
+		},
+	})
+
+	// 超链接域结束
+	para.Runs = append(para.Runs, Run{
+		Properties: runProps,
 		FieldChar: &FieldChar{
 			FieldCharType: "end",
 		},
