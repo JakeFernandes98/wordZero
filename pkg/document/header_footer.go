@@ -761,23 +761,39 @@ func (d *Document) addFooterReference(footerType HeaderFooterType, footerID stri
 		ID:   footerID,
 	}
 
-	sectPr.FooterReferences = append(sectPr.FooterReferences, footerRef)
+	// Check if a footer reference of this type already exists and update it
+	found := false
+	for i, ref := range sectPr.FooterReferences {
+		if ref.Type == string(footerType) {
+			sectPr.FooterReferences[i] = footerRef
+			found = true
+			break
+		}
+	}
+	if !found {
+		sectPr.FooterReferences = append(sectPr.FooterReferences, footerRef)
+	}
+	
+	fmt.Printf("[addFooterReference] Added footer reference: type=%s, id=%s, total refs=%d\n", 
+		footerType, footerID, len(sectPr.FooterReferences))
 }
 
 // getSectionPropertiesForHeaderFooter 获取或创建带页眉页脚支持的节属性
 func (d *Document) getSectionPropertiesForHeaderFooter() *SectionProperties {
 	// 查找文档中是否已存在节属性
-	for _, element := range d.Body.Elements {
+	for i, element := range d.Body.Elements {
 		if sectPr, ok := element.(*SectionProperties); ok {
 			// 确保设置了关系命名空间
 			if sectPr.XmlnsR == "" {
 				sectPr.XmlnsR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 			}
+			fmt.Printf("[getSectionPropertiesForHeaderFooter] Found existing sectPr at index %d\n", i)
 			return sectPr
 		}
 	}
 
 	// 如果不存在，创建新的节属性
+	fmt.Printf("[getSectionPropertiesForHeaderFooter] Creating new sectPr (total elements: %d)\n", len(d.Body.Elements))
 	sectPr := &SectionProperties{
 		XMLName: xml.Name{Local: "w:sectPr"},
 		XmlnsR:  "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
