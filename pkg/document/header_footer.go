@@ -431,6 +431,156 @@ func (d *Document) AddHeaderWithPageNumber(headerType HeaderFooterType, text str
 	return nil
 }
 
+// MergePageNumberIntoFooter adds a page number to an existing footer, or creates a new footer if none exists.
+// This preserves any existing footer content from templates.
+func (d *Document) MergePageNumberIntoFooter(footerType HeaderFooterType) error {
+	fileName := getFileNameForType("footer", footerType)
+	footerPartName := fmt.Sprintf("word/%s", fileName)
+	
+	var footer *Footer
+	var footerID string
+	
+	// Check if footer already exists in parts
+	if existingFooterXML, exists := d.parts[footerPartName]; exists {
+		// Parse existing footer
+		footer = &Footer{}
+		if err := xml.Unmarshal(existingFooterXML, footer); err != nil {
+			// If parsing fails, create a new footer
+			footer = createStandardFooter()
+		}
+		
+		// Find the existing relationship ID for this footer
+		for _, rel := range d.documentRelationships.Relationships {
+			if rel.Target == fileName {
+				footerID = rel.ID
+				break
+			}
+		}
+	} else {
+		// No existing footer, create a new one
+		footer = createStandardFooter()
+	}
+	
+	// Create page number paragraph with centered alignment
+	pageNumParagraph := &Paragraph{
+		Properties: &ParagraphProperties{
+			Justification: &Justification{Val: "center"},
+		},
+	}
+	
+	// Add styled page number runs
+	pageNumberRuns := createStyledPageNumberRuns()
+	pageNumParagraph.Runs = append(pageNumParagraph.Runs, pageNumberRuns...)
+	
+	// Append page number paragraph to existing footer content
+	footer.Paragraphs = append(footer.Paragraphs, pageNumParagraph)
+	
+	// Generate new relationship ID if needed
+	if footerID == "" {
+		footerID = fmt.Sprintf("rId%d", len(d.documentRelationships.Relationships)+2)
+		
+		// Add relationship
+		relationship := Relationship{
+			ID:     footerID,
+			Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer",
+			Target: fileName,
+		}
+		d.documentRelationships.Relationships = append(d.documentRelationships.Relationships, relationship)
+		
+		// Add content type
+		d.addContentType(footerPartName, "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
+		
+		// Add footer reference to section properties
+		d.addFooterReference(footerType, footerID)
+	}
+	
+	// Serialize and store footer
+	footerXML, err := xml.MarshalIndent(footer, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to serialize footer: %v", err)
+	}
+	
+	fullXML := append([]byte(xml.Header), footerXML...)
+	d.parts[footerPartName] = fullXML
+	
+	return nil
+}
+
+// MergePageNumberIntoHeader adds a page number to an existing header, or creates a new header if none exists.
+// This preserves any existing header content from templates.
+func (d *Document) MergePageNumberIntoHeader(headerType HeaderFooterType) error {
+	fileName := getFileNameForType("header", headerType)
+	headerPartName := fmt.Sprintf("word/%s", fileName)
+	
+	var header *Header
+	var headerID string
+	
+	// Check if header already exists in parts
+	if existingHeaderXML, exists := d.parts[headerPartName]; exists {
+		// Parse existing header
+		header = &Header{}
+		if err := xml.Unmarshal(existingHeaderXML, header); err != nil {
+			// If parsing fails, create a new header
+			header = createStandardHeader()
+		}
+		
+		// Find the existing relationship ID for this header
+		for _, rel := range d.documentRelationships.Relationships {
+			if rel.Target == fileName {
+				headerID = rel.ID
+				break
+			}
+		}
+	} else {
+		// No existing header, create a new one
+		header = createStandardHeader()
+	}
+	
+	// Create page number paragraph with right alignment (typical for headers)
+	pageNumParagraph := &Paragraph{
+		Properties: &ParagraphProperties{
+			Justification: &Justification{Val: "right"},
+		},
+	}
+	
+	// Add styled page number runs
+	pageNumberRuns := createStyledPageNumberRuns()
+	pageNumParagraph.Runs = append(pageNumParagraph.Runs, pageNumberRuns...)
+	
+	// Append page number paragraph to existing header content
+	header.Paragraphs = append(header.Paragraphs, pageNumParagraph)
+	
+	// Generate new relationship ID if needed
+	if headerID == "" {
+		headerID = fmt.Sprintf("rId%d", len(d.documentRelationships.Relationships)+2)
+		
+		// Add relationship
+		relationship := Relationship{
+			ID:     headerID,
+			Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
+			Target: fileName,
+		}
+		d.documentRelationships.Relationships = append(d.documentRelationships.Relationships, relationship)
+		
+		// Add content type
+		d.addContentType(headerPartName, "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml")
+		
+		// Add header reference to section properties
+		d.addHeaderReference(headerType, headerID)
+	}
+	
+	// Serialize and store header
+	headerXML, err := xml.MarshalIndent(header, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to serialize header: %v", err)
+	}
+	
+	fullXML := append([]byte(xml.Header), headerXML...)
+	d.parts[headerPartName] = fullXML
+	
+	return nil
+}
+
 // AddFooterWithPageNumber 添加带页码的页脚
 func (d *Document) AddFooterWithPageNumber(footerType HeaderFooterType, text string, showPageNum bool) error {
 	footer := createStandardFooter()
