@@ -9,12 +9,13 @@ import (
 
 // TOCConfig 目录配置
 type TOCConfig struct {
-	Title        string // 目录标题，默认为"目录"
-	MaxLevel     int    // 最大级别，默认为3（显示1-3级标题）
-	ShowPageNum  bool   // 是否显示页码，默认为true
-	RightAlign   bool   // 页码是否右对齐，默认为true
-	UseHyperlink bool   // 是否使用超链接，默认为true
-	DotLeader    bool   // 是否使用点状引导线，默认为true
+	Title          string // 目录标题，默认为"目录"
+	MaxLevel       int    // 最大级别，默认为3（显示1-3级标题）
+	ShowPageNum    bool   // 是否显示页码，默认为true
+	RightAlign     bool   // 页码是否右对齐，默认为true
+	UseHyperlink   bool   // 是否使用超链接，默认为true
+	DotLeader      bool   // 是否使用点状引导线，默认为true
+	InsertPosition int    // 插入位置（元素索引），-1表示自动（开头或现有TOC位置）
 }
 
 // TOCEntry 目录条目
@@ -65,12 +66,13 @@ func (b *BookmarkStart) ElementType() string {
 // DefaultTOCConfig 返回默认目录配置
 func DefaultTOCConfig() *TOCConfig {
 	return &TOCConfig{
-		Title:        "目录",
-		MaxLevel:     3,
-		ShowPageNum:  true,
-		RightAlign:   true,
-		UseHyperlink: true,
-		DotLeader:    true,
+		Title:          "目录",
+		MaxLevel:       3,
+		ShowPageNum:    true,
+		RightAlign:     true,
+		UseHyperlink:   true,
+		DotLeader:      true,
+		InsertPosition: -1, // Auto: beginning or existing TOC position
 	}
 }
 
@@ -562,7 +564,13 @@ func (d *Document) AutoGenerateTOC(config *TOCConfig) error {
 	tocStart := d.findTOCStart()
 	var insertIndex int
 
-	if tocStart != -1 {
+	if config.InsertPosition >= 0 {
+		// Use explicitly specified position
+		insertIndex = config.InsertPosition
+		if insertIndex > len(d.Body.Elements) {
+			insertIndex = len(d.Body.Elements)
+		}
+	} else if tocStart != -1 {
 		// 如果已有目录，删除现有目录条目
 		d.removeTOCEntries(tocStart)
 		insertIndex = tocStart
@@ -586,7 +594,7 @@ func (d *Document) AutoGenerateTOC(config *TOCConfig) error {
 		// 在开头插入
 		d.Body.Elements = append(tocElements, d.Body.Elements...)
 	} else {
-		// 在指定位置替换
+		// 在指定位置插入
 		newElements := make([]interface{}, 0, len(d.Body.Elements)+len(tocElements))
 		newElements = append(newElements, d.Body.Elements[:insertIndex]...)
 		newElements = append(newElements, tocElements...)
@@ -611,6 +619,14 @@ func (d *Document) GetHeadingCount() map[int]int {
 	}
 
 	return counts
+}
+
+// GetElementCount returns the number of elements in the document body
+func (d *Document) GetElementCount() int {
+	if d.Body == nil || d.Body.Elements == nil {
+		return 0
+	}
+	return len(d.Body.Elements)
 }
 
 // ListHeadings 列出文档中所有的标题，用于调试
