@@ -4110,6 +4110,120 @@ func (d *Document) parseAnchorDrawing(decoder *xml.Decoder, startElement xml.Sta
 		switch t := token.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "simplePos":
+				simplePos := &SimplePosition{}
+				for _, attr := range t.Attr {
+					switch attr.Name.Local {
+					case "x":
+						simplePos.X = attr.Value
+					case "y":
+						simplePos.Y = attr.Value
+					}
+				}
+				anchor.SimplePosition = simplePos
+				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+					return nil, err
+				}
+			case "positionH":
+				posH := &HorizontalPosition{}
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "relativeFrom" {
+						posH.RelativeFrom = attr.Value
+					}
+				}
+				// Parse child elements (align or posOffset)
+				for {
+					innerToken, err := decoder.Token()
+					if err != nil {
+						return nil, WrapError("parse_positionH", err)
+					}
+					switch inner := innerToken.(type) {
+					case xml.StartElement:
+						switch inner.Name.Local {
+						case "align":
+							var content string
+							if err := decoder.DecodeElement(&content, &inner); err != nil {
+								return nil, err
+							}
+							posH.Align = &PosAlign{Value: content}
+						case "posOffset":
+							var content string
+							if err := decoder.DecodeElement(&content, &inner); err != nil {
+								return nil, err
+							}
+							posH.PosOffset = &PosOffset{Value: content}
+						default:
+							if err := d.skipElement(decoder, inner.Name.Local); err != nil {
+								return nil, err
+							}
+						}
+					case xml.EndElement:
+						if inner.Name.Local == "positionH" {
+							goto positionHDone
+						}
+					}
+				}
+			positionHDone:
+				anchor.PositionH = posH
+			case "positionV":
+				posV := &VerticalPosition{}
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "relativeFrom" {
+						posV.RelativeFrom = attr.Value
+					}
+				}
+				// Parse child elements (align or posOffset)
+				for {
+					innerToken, err := decoder.Token()
+					if err != nil {
+						return nil, WrapError("parse_positionV", err)
+					}
+					switch inner := innerToken.(type) {
+					case xml.StartElement:
+						switch inner.Name.Local {
+						case "align":
+							var content string
+							if err := decoder.DecodeElement(&content, &inner); err != nil {
+								return nil, err
+							}
+							posV.Align = &PosAlign{Value: content}
+						case "posOffset":
+							var content string
+							if err := decoder.DecodeElement(&content, &inner); err != nil {
+								return nil, err
+							}
+							posV.PosOffset = &PosOffset{Value: content}
+						default:
+							if err := d.skipElement(decoder, inner.Name.Local); err != nil {
+								return nil, err
+							}
+						}
+					case xml.EndElement:
+						if inner.Name.Local == "positionV" {
+							goto positionVDone
+						}
+					}
+				}
+			positionVDone:
+				anchor.PositionV = posV
+			case "effectExtent":
+				effectExtent := &EffectExtent{}
+				for _, attr := range t.Attr {
+					switch attr.Name.Local {
+					case "l":
+						effectExtent.L = attr.Value
+					case "t":
+						effectExtent.T = attr.Value
+					case "r":
+						effectExtent.R = attr.Value
+					case "b":
+						effectExtent.B = attr.Value
+					}
+				}
+				anchor.EffectExtent = effectExtent
+				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+					return nil, err
+				}
 			case "extent":
 				extent := &DrawingExtent{}
 				for _, attr := range t.Attr {
