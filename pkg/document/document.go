@@ -3198,7 +3198,12 @@ func (d *Document) readElementText(decoder *xml.Decoder, elementName string) (st
 // getAttributeValue 获取属性值
 func getAttributeValue(attrs []xml.Attr, name string) string {
 	for _, attr := range attrs {
+		// Check both with and without namespace prefix
 		if attr.Name.Local == name {
+			return attr.Value
+		}
+		// Also check for w: prefixed attributes (e.g., w:val)
+		if attr.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" && attr.Name.Local == name {
 			return attr.Value
 		}
 	}
