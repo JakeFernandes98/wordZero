@@ -176,6 +176,62 @@ func createPageNumberRuns() []Run {
 	}
 }
 
+// createStyledPageNumberRuns creates page number runs with Open Sans font and black color
+func createStyledPageNumberRuns() []Run {
+	// Run properties for Open Sans font, black color, 10pt size
+	runProps := &RunProperties{
+		FontFamily: &FontFamily{
+			ASCII:    "Open Sans",
+			HAnsi:    "Open Sans",
+			EastAsia: "Open Sans",
+			CS:       "Open Sans",
+		},
+		Color: &Color{
+			Val: "000000",
+		},
+		Size: &Size{
+			Val: "20", // 10pt = 20 half-points
+		},
+		SizeCs: &SizeCs{
+			Val: "20",
+		},
+	}
+
+	return []Run{
+		{
+			Properties: runProps,
+			FieldChar: &FieldChar{
+				FieldCharType: "begin",
+			},
+		},
+		{
+			Properties: runProps,
+			InstrText: &InstrText{
+				Space:   "preserve",
+				Content: " PAGE ",
+			},
+		},
+		{
+			Properties: runProps,
+			FieldChar: &FieldChar{
+				FieldCharType: "separate",
+			},
+		},
+		{
+			Properties: runProps,
+			Text: Text{
+				Content: "1",
+			},
+		},
+		{
+			Properties: runProps,
+			FieldChar: &FieldChar{
+				FieldCharType: "end",
+			},
+		},
+	}
+}
+
 // getFileNameForType 获取页眉页脚文件名
 func getFileNameForType(typePrefix string, headerType HeaderFooterType) string {
 	switch headerType {
@@ -379,8 +435,12 @@ func (d *Document) AddHeaderWithPageNumber(headerType HeaderFooterType, text str
 func (d *Document) AddFooterWithPageNumber(footerType HeaderFooterType, text string, showPageNum bool) error {
 	footer := createStandardFooter()
 
-	// 创建页脚段落
-	paragraph := &Paragraph{}
+	// 创建页脚段落 - centered alignment
+	paragraph := &Paragraph{
+		Properties: &ParagraphProperties{
+			Justification: &Justification{Val: "center"},
+		},
+	}
 
 	if text != "" {
 		run := Run{
@@ -393,27 +453,9 @@ func (d *Document) AddFooterWithPageNumber(footerType HeaderFooterType, text str
 	}
 
 	if showPageNum {
-		// 添加"第"字
-		pageNumRun := Run{
-			Text: Text{
-				Content: " 第 ",
-				Space:   "preserve",
-			},
-		}
-		paragraph.Runs = append(paragraph.Runs, pageNumRun)
-
-		// 添加页码域代码
-		pageNumberRuns := createPageNumberRuns()
+		// Create page number runs with Open Sans font and black color
+		pageNumberRuns := createStyledPageNumberRuns()
 		paragraph.Runs = append(paragraph.Runs, pageNumberRuns...)
-
-		// 添加"页"字
-		pageNumRun2 := Run{
-			Text: Text{
-				Content: " 页",
-				Space:   "preserve",
-			},
-		}
-		paragraph.Runs = append(paragraph.Runs, pageNumRun2)
 	}
 
 	footer.Paragraphs = append(footer.Paragraphs, paragraph)
