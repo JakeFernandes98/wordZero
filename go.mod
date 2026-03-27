@@ -1,4 +1,4 @@
-module github.com/ZeroHawkeye/wordZero
+module github.com/JakeFernandes98/wordZero
 
 go 1.19
 
