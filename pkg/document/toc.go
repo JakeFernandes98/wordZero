@@ -769,7 +769,9 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 	})
 
 	// 添加TOC指令
-	instrContent := fmt.Sprintf("TOC \\o \"1-%d\" \\h \\u", config.MaxLevel)
+	// Use \t switch to specify heading styles explicitly, and \o for outline levels
+	// This ensures both style-based and outline-level headings are captured
+	instrContent := fmt.Sprintf(`TOC \o "1-%d" \h \z \t "Heading1,1,Heading2,2,Heading3,3,Heading4,4,Heading5,5,Heading6,6,Heading7,7,Heading8,8,Heading9,9"`, config.MaxLevel)
 	tocFieldPara.Runs = append(tocFieldPara.Runs, Run{
 		Properties: &RunProperties{
 			FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
