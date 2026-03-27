@@ -4287,6 +4287,40 @@ func (d *Document) parseAnchorDrawing(decoder *xml.Decoder, startElement xml.Sta
 				if err := d.skipElement(decoder, t.Name.Local); err != nil {
 					return nil, err
 				}
+			case "cNvGraphicFramePr":
+				cNvGraphicFramePr := &CNvGraphicFramePr{}
+				// Parse child elements if any (like graphicFrameLocks)
+				for {
+					innerToken, err := decoder.Token()
+					if err != nil {
+						return nil, WrapError("parse_cNvGraphicFramePr", err)
+					}
+					switch inner := innerToken.(type) {
+					case xml.StartElement:
+						if inner.Name.Local == "graphicFrameLocks" {
+							locks := &GraphicFrameLocks{}
+							for _, attr := range inner.Attr {
+								if attr.Name.Local == "noChangeAspect" {
+									locks.NoChangeAspect = attr.Value
+								}
+							}
+							cNvGraphicFramePr.GraphicFrameLocks = locks
+							if err := d.skipElement(decoder, inner.Name.Local); err != nil {
+								return nil, err
+							}
+						} else {
+							if err := d.skipElement(decoder, inner.Name.Local); err != nil {
+								return nil, err
+							}
+						}
+					case xml.EndElement:
+						if inner.Name.Local == "cNvGraphicFramePr" {
+							goto cNvGraphicFramePrDone
+						}
+					}
+				}
+			cNvGraphicFramePrDone:
+				anchor.CNvGraphicFramePr = cNvGraphicFramePr
 			default:
 				if err := d.skipElement(decoder, t.Name.Local); err != nil {
 					return nil, err
