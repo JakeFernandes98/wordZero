@@ -2135,6 +2135,44 @@ func (d *Document) MergeDocumentFrom(source *Document) map[string]string {
 	return relIDMap
 }
 
+// MergeStylesFrom merges styles from another document into this document
+// This is useful when combining documents that have different style definitions
+func (d *Document) MergeStylesFrom(source *Document) {
+	if source == nil || source.parts == nil {
+		return
+	}
+	
+	// Get source styles.xml
+	sourceStylesData, hasSourceStyles := source.parts["word/styles.xml"]
+	if !hasSourceStyles || len(sourceStylesData) == 0 {
+		return
+	}
+	
+	// Get destination styles.xml
+	destStylesData, hasDestStyles := d.parts["word/styles.xml"]
+	if !hasDestStyles || len(destStylesData) == 0 {
+		// If destination has no styles, just copy source styles
+		d.parts["word/styles.xml"] = make([]byte, len(sourceStylesData))
+		copy(d.parts["word/styles.xml"], sourceStylesData)
+		fmt.Printf("[Document.MergeStylesFrom] Copied styles.xml from source (no existing styles)\n")
+		return
+	}
+	
+	// Check if source has Heading styles that destination doesn't have
+	sourceHasHeadings := strings.Contains(string(sourceStylesData), "Heading1") || 
+	                     strings.Contains(string(sourceStylesData), "heading 1")
+	destHasHeadings := strings.Contains(string(destStylesData), "Heading1") || 
+	                   strings.Contains(string(destStylesData), "heading 1")
+	
+	if sourceHasHeadings && !destHasHeadings {
+		// Source has heading styles that destination doesn't have
+		// Replace destination styles with source styles
+		d.parts["word/styles.xml"] = make([]byte, len(sourceStylesData))
+		copy(d.parts["word/styles.xml"], sourceStylesData)
+		fmt.Printf("[Document.MergeStylesFrom] Replaced styles.xml with source (source has Heading styles)\n")
+	}
+}
+
 // UpdateElementImageReferences updates image references in elements using the provided ID map
 func UpdateElementImageReferences(element interface{}, relIDMap map[string]string) {
 	if relIDMap == nil || len(relIDMap) == 0 {
