@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ZeroHawkeye/wordZero/pkg/markdown"
+	"github.com/JakeFernandes98/wordZero/pkg/markdown"
 )
 
 // TestMarkdownMathFormulaConversion 测试Markdown数学公式转换

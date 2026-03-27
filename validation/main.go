@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ZeroHawkeye/wordZero/pkg/document"
-	"github.com/ZeroHawkeye/wordZero/pkg/markdown"
-	"github.com/ZeroHawkeye/wordZero/pkg/style"
+	"github.com/JakeFernandes98/wordZero/pkg/document"
+	"github.com/JakeFernandes98/wordZero/pkg/markdown"
+	"github.com/JakeFernandes98/wordZero/pkg/style"
 )
 
 // TestResult represents the result of a single test

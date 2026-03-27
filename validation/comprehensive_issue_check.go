@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ZeroHawkeye/wordZero/pkg/document"
+	"github.com/JakeFernandes98/wordZero/pkg/document"
 )
 
 func main() {

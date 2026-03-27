@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ZeroHawkeye/wordZero/pkg/document"
+	"github.com/JakeFernandes98/wordZero/pkg/document"
 )
 
 func main() {
