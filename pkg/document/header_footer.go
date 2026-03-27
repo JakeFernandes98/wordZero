@@ -189,10 +189,10 @@ func createStyledPageNumberRuns() []Run {
 		Color: &Color{
 			Val: "000000",
 		},
-		Size: &Size{
+		FontSize: &FontSize{
 			Val: "20", // 10pt = 20 half-points
 		},
-		SizeCs: &SizeCs{
+		FontSizeCs: &FontSizeCs{
 			Val: "20",
 		},
 	}
