@@ -108,6 +108,14 @@ type RunProperties struct {
 	Color      *Color      `xml:"w:color,omitempty"`
 	FontSize   *FontSize   `xml:"w:sz,omitempty"`
 	Highlight  *Highlight  `xml:"w:highlight,omitempty"`
+	VertAlign  *VertAlign  `xml:"w:vertAlign,omitempty"` // Subscript/Superscript
+}
+
+// VertAlign 垂直对齐（上标/下标）
+// Val can be "subscript" or "superscript"
+type VertAlign struct {
+	XMLName xml.Name `xml:"w:vertAlign"`
+	Val     string   `xml:"w:val,attr"`
 }
 
 // TableProperties 表格样式属性
@@ -1273,6 +1281,13 @@ func mergeRunProperties(base, override *RunProperties) *RunProperties {
 		merged.Highlight = base.Highlight
 	}
 
+	// 合并垂直对齐（上标/下标）
+	if override.VertAlign != nil {
+		merged.VertAlign = override.VertAlign
+	} else if base.VertAlign != nil {
+		merged.VertAlign = base.VertAlign
+	}
+
 	return merged
 }
 
@@ -1534,6 +1549,11 @@ func (sm *StyleManager) cloneRunProperties(source *RunProperties) *RunProperties
 	// 克隆高亮
 	if source.Highlight != nil {
 		cloned.Highlight = &Highlight{Val: source.Highlight.Val}
+	}
+
+	// 克隆垂直对齐（上标/下标）
+	if source.VertAlign != nil {
+		cloned.VertAlign = &VertAlign{Val: source.VertAlign.Val}
 	}
 
 	return cloned

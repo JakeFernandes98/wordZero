@@ -268,6 +268,14 @@ type RunProperties struct {
 	FontSizeCs *FontSizeCs  `xml:"w:szCs,omitempty"`
 	Highlight  *Highlight   `xml:"w:highlight,omitempty"`
 	Shd        *RunShading  `xml:"w:shd,omitempty"`
+	VertAlign  *VertAlign   `xml:"w:vertAlign,omitempty"` // Subscript/Superscript
+}
+
+// VertAlign 垂直对齐（上标/下标）
+// Val can be "subscript" or "superscript"
+type VertAlign struct {
+	XMLName xml.Name `xml:"w:vertAlign"`
+	Val     string   `xml:"w:val,attr"`
 }
 
 // RunShading 文本底纹/背景色

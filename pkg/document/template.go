@@ -1224,6 +1224,13 @@ func (te *TemplateEngine) cloneRunProperties(source *RunProperties) *RunProperti
 		}
 	}
 
+	// 复制垂直对齐（上标/下标）
+	if source.VertAlign != nil {
+		props.VertAlign = &VertAlign{
+			Val: source.VertAlign.Val,
+		}
+	}
+
 	return props
 }
 
