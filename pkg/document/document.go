@@ -31,6 +31,10 @@ type Document struct {
 	parts map[string][]byte
 	// 图片ID计数器，确保每个图片都有唯一的ID
 	nextImageID int
+	// SEQ field counters for captions (Table, Figure, etc.)
+	seqCounters map[string]int
+	// Caption bookmarks for LOT/LOF generation
+	captionBookmarks map[string][]CaptionBookmark
 }
 
 // Body 表示文档主体
