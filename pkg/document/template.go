@@ -1133,6 +1133,19 @@ func (te *TemplateEngine) cloneRun(source *Run) Run {
 		newRun.InstrText = source.InstrText
 	}
 
+	// 复制原始XML元素（如果有）- 用于保留mc:AlternateContent等复杂内容
+	if len(source.RawElements) > 0 {
+		newRun.RawElements = make([]*RawElement, len(source.RawElements))
+		for i, rawElem := range source.RawElements {
+			if rawElem != nil {
+				newRun.RawElements[i] = &RawElement{
+					RawXML:      rawElem.RawXML,
+					ElementName: rawElem.ElementName,
+				}
+			}
+		}
+	}
+
 	return newRun
 }
 
