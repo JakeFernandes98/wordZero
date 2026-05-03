@@ -432,23 +432,15 @@ func (d *Document) AddHeaderWithPageNumber(headerType HeaderFooterType, text str
 }
 
 // MergePageNumberIntoFooter adds a page number to an existing footer, or creates a new footer if none exists.
-// This preserves any existing footer content from templates.
+// This preserves any existing footer content from templates by using raw XML manipulation.
 func (d *Document) MergePageNumberIntoFooter(footerType HeaderFooterType) error {
 	fileName := getFileNameForType("footer", footerType)
 	footerPartName := fmt.Sprintf("word/%s", fileName)
 	
-	var footer *Footer
 	var footerID string
 	
 	// Check if footer already exists in parts
 	if existingFooterXML, exists := d.parts[footerPartName]; exists {
-		// Parse existing footer
-		footer = &Footer{}
-		if err := xml.Unmarshal(existingFooterXML, footer); err != nil {
-			// If parsing fails, create a new footer
-			footer = createStandardFooter()
-		}
-		
 		// Find the existing relationship ID for this footer
 		for _, rel := range d.documentRelationships.Relationships {
 			if rel.Target == fileName {
@@ -456,10 +448,34 @@ func (d *Document) MergePageNumberIntoFooter(footerType HeaderFooterType) error 
 				break
 			}
 		}
-	} else {
-		// No existing footer, create a new one
-		footer = createStandardFooter()
+		
+		// Use raw XML manipulation to preserve complex content
+		// Find the closing </w:ftr> tag and insert the page number paragraph before it
+		pageNumXML := createPageNumberParagraphXML()
+		
+		xmlStr := string(existingFooterXML)
+		closingTag := "</w:ftr>"
+		closingIdx := strings.LastIndex(xmlStr, closingTag)
+		if closingIdx == -1 {
+			// Try alternative closing tag format
+			closingTag = "</ftr>"
+			closingIdx = strings.LastIndex(xmlStr, closingTag)
+		}
+		
+		if closingIdx != -1 {
+			// Insert page number paragraph before the closing tag
+			newXML := xmlStr[:closingIdx] + pageNumXML + xmlStr[closingIdx:]
+			d.parts[footerPartName] = []byte(newXML)
+			return nil
+		}
+		
+		// If we can't find the closing tag, fall back to the old method
+		// (this shouldn't happen with valid DOCX files)
+		fmt.Printf("[MergePageNumberIntoFooter] Warning: Could not find closing tag, using fallback method\n")
 	}
+	
+	// No existing footer or fallback - create a new one
+	footer := createStandardFooter()
 	
 	// Create page number paragraph with centered alignment
 	pageNumParagraph := &Paragraph{
@@ -472,7 +488,7 @@ func (d *Document) MergePageNumberIntoFooter(footerType HeaderFooterType) error 
 	pageNumberRuns := createStyledPageNumberRuns()
 	pageNumParagraph.Runs = append(pageNumParagraph.Runs, pageNumberRuns...)
 	
-	// Append page number paragraph to existing footer content
+	// Append page number paragraph to footer
 	footer.Paragraphs = append(footer.Paragraphs, pageNumParagraph)
 	
 	// Generate new relationship ID if needed
@@ -504,6 +520,50 @@ func (d *Document) MergePageNumberIntoFooter(footerType HeaderFooterType) error 
 	d.parts[footerPartName] = fullXML
 	
 	return nil
+}
+
+// createPageNumberParagraphXML creates the XML for a centered page number paragraph
+func createPageNumberParagraphXML() string {
+	return `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:pPr>
+    <w:jc w:val="center"/>
+  </w:pPr>
+  <w:r>
+    <w:rPr>
+      <w:rFonts w:ascii="Aptos" w:hAnsi="Aptos"/>
+      <w:color w:val="000000"/>
+    </w:rPr>
+    <w:fldChar w:fldCharType="begin"/>
+  </w:r>
+  <w:r>
+    <w:rPr>
+      <w:rFonts w:ascii="Aptos" w:hAnsi="Aptos"/>
+      <w:color w:val="000000"/>
+    </w:rPr>
+    <w:instrText xml:space="preserve"> PAGE </w:instrText>
+  </w:r>
+  <w:r>
+    <w:rPr>
+      <w:rFonts w:ascii="Aptos" w:hAnsi="Aptos"/>
+      <w:color w:val="000000"/>
+    </w:rPr>
+    <w:fldChar w:fldCharType="separate"/>
+  </w:r>
+  <w:r>
+    <w:rPr>
+      <w:rFonts w:ascii="Aptos" w:hAnsi="Aptos"/>
+      <w:color w:val="000000"/>
+    </w:rPr>
+    <w:t>1</w:t>
+  </w:r>
+  <w:r>
+    <w:rPr>
+      <w:rFonts w:ascii="Aptos" w:hAnsi="Aptos"/>
+      <w:color w:val="000000"/>
+    </w:rPr>
+    <w:fldChar w:fldCharType="end"/>
+  </w:r>
+</w:p>`
 }
 
 // MergePageNumberIntoHeader adds a page number to an existing header, or creates a new header if none exists.

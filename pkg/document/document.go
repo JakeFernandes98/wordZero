@@ -64,8 +64,21 @@ func (b *Body) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 
 	// 先序列化其他元素（段落、表格等）
 	for _, element := range otherElements {
-		if err := e.Encode(element); err != nil {
-			return err
+		// Handle RawElement specially - write raw XML directly
+		if raw, ok := element.(*RawElement); ok {
+			// Flush the encoder first
+			if err := e.Flush(); err != nil {
+				return err
+			}
+			// Write raw XML as CharData (will be unescaped in post-processing)
+			// Actually, we need to use a marker approach
+			if err := e.EncodeToken(xml.CharData([]byte("__RAW_XML_START__" + raw.RawXML + "__RAW_XML_END__"))); err != nil {
+				return err
+			}
+		} else {
+			if err := e.Encode(element); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -2481,9 +2494,10 @@ func (d *Document) parseBodySubElement(decoder *xml.Decoder, startElement xml.St
 		// 解析节属性
 		return d.parseSectionProperties(decoder, startElement)
 	default:
-		// 跳过未知元素
-		Debugf("跳过未知元素: %s", startElement.Name.Local)
-		return nil, d.skipElement(decoder, startElement.Name.Local)
+		// Capture unknown elements as raw XML to preserve them
+		// This handles mc:AlternateContent, shapes, SmartArt, bookmarks, etc.
+		Debugf("Capturing raw element: %s", startElement.Name.Local)
+		return captureRawElement(decoder, startElement)
 	}
 }
 
@@ -3301,6 +3315,11 @@ func (d *Document) serializeDocument() error {
 		Errorf("XML序列化失败: %v", err)
 		return WrapError("marshal_xml", err)
 	}
+
+	// Post-process to restore raw XML content
+	// Raw XML is wrapped in markers: __RAW_XML_START__...content...__RAW_XML_END__
+	// The content inside gets XML-escaped during marshaling, so we need to selectively unescape it
+	data = unescapeRawXMLMarkers(data)
 
 	// 添加XML声明
 	d.parts["word/document.xml"] = append([]byte(xml.Header), data...)
