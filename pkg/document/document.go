@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -2220,6 +2221,346 @@ func (d *Document) MergeStylesFrom(source *Document) {
 		copy(d.parts["word/styles.xml"], sourceStylesData)
 		fmt.Printf("[Document.MergeStylesFrom] Replaced styles.xml with source (source has Heading styles)\n")
 	}
+}
+
+// MergeHeadersFootersFrom merges headers and footers from another document into this document.
+// This copies the header/footer files, their relationship files, and any images they reference.
+// It also updates the document relationships and section properties.
+// If the destination already has headers/footers, they will be replaced with the source's.
+func (d *Document) MergeHeadersFootersFrom(source *Document) map[string]string {
+	if source == nil || source.parts == nil {
+		return nil
+	}
+
+	relIDMap := make(map[string]string)
+
+	// Find the highest rId in the destination document
+	highestRId := 0
+	if d.documentRelationships != nil {
+		for _, rel := range d.documentRelationships.Relationships {
+			var num int
+			if _, err := fmt.Sscanf(rel.ID, "rId%d", &num); err == nil {
+				if num > highestRId {
+					highestRId = num
+				}
+			}
+		}
+	}
+
+	// Find the highest image number in the destination
+	highestImageNum := 0
+	for partName := range d.parts {
+		if strings.HasPrefix(partName, "word/media/image") {
+			var num int
+			if _, err := fmt.Sscanf(partName, "word/media/image%d", &num); err == nil {
+				if num > highestImageNum {
+					highestImageNum = num
+				}
+			}
+		}
+	}
+
+	// Initialize relationships if needed
+	if d.documentRelationships == nil {
+		d.documentRelationships = &Relationships{
+			Xmlns:         "http://schemas.openxmlformats.org/package/2006/relationships",
+			Relationships: []Relationship{},
+		}
+	}
+
+	// Initialize parts if needed
+	if d.parts == nil {
+		d.parts = make(map[string][]byte)
+	}
+
+	// Track which header/footer types we've processed
+	headerTypes := make(map[string]string)  // type -> new rId
+	footerTypes := make(map[string]string)  // type -> new rId
+
+	// Process source relationships for headers and footers
+	if source.documentRelationships != nil {
+		for _, rel := range source.documentRelationships.Relationships {
+			isHeader := rel.Type == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
+			isFooter := rel.Type == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
+
+			if !isHeader && !isFooter {
+				continue
+			}
+
+			// Get the source file data
+			sourcePartName := "word/" + rel.Target
+			sourceData, exists := source.parts[sourcePartName]
+			if !exists {
+				fmt.Printf("[MergeHeadersFootersFrom] Warning: %s not found in source parts\n", sourcePartName)
+				continue
+			}
+
+			// Determine the type (default, first, even) from the filename
+			hfType := "default"
+			if strings.Contains(rel.Target, "2") {
+				hfType = "first"
+			} else if strings.Contains(rel.Target, "3") {
+				hfType = "even"
+			}
+
+			// Generate new relationship ID
+			highestRId++
+			newRId := fmt.Sprintf("rId%d", highestRId)
+
+			// Determine new target filename
+			var newTarget string
+			if isHeader {
+				switch hfType {
+				case "first":
+					newTarget = "header2.xml"
+				case "even":
+					newTarget = "header3.xml"
+				default:
+					newTarget = "header1.xml"
+				}
+				headerTypes[hfType] = newRId
+			} else {
+				switch hfType {
+				case "first":
+					newTarget = "footer2.xml"
+				case "even":
+					newTarget = "footer3.xml"
+				default:
+					newTarget = "footer1.xml"
+				}
+				footerTypes[hfType] = newRId
+			}
+
+			// Copy the header/footer relationship file if it exists
+			sourceRelsPath := "word/_rels/" + rel.Target + ".rels"
+			destRelsPath := "word/_rels/" + newTarget + ".rels"
+			if sourceRelsData, hasRels := source.parts[sourceRelsPath]; hasRels {
+				// Parse the relationships to find and copy images
+				hfImageMap := d.copyHeaderFooterImages(source, sourceRelsData, &highestImageNum, &highestRId)
+				
+				// Update the relationship file with new image IDs
+				updatedRelsData := d.updateHeaderFooterRelsFile(sourceRelsData, hfImageMap)
+				d.parts[destRelsPath] = updatedRelsData
+				
+				fmt.Printf("[MergeHeadersFootersFrom] Copied rels file: %s -> %s\n", sourceRelsPath, destRelsPath)
+			}
+
+			// Copy the file data
+			d.parts["word/"+newTarget] = make([]byte, len(sourceData))
+			copy(d.parts["word/"+newTarget], sourceData)
+
+			// Remove any existing relationship for this target
+			newRels := make([]Relationship, 0)
+			for _, existingRel := range d.documentRelationships.Relationships {
+				if existingRel.Target != newTarget {
+					newRels = append(newRels, existingRel)
+				}
+			}
+			d.documentRelationships.Relationships = newRels
+
+			// Add the new relationship
+			newRel := Relationship{
+				ID:     newRId,
+				Type:   rel.Type,
+				Target: newTarget,
+			}
+			d.documentRelationships.Relationships = append(d.documentRelationships.Relationships, newRel)
+
+			// Add content type if not present
+			contentType := "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
+			if isFooter {
+				contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"
+			}
+			d.addContentType("word/"+newTarget, contentType)
+
+			relIDMap[rel.ID] = newRId
+			fmt.Printf("[MergeHeadersFootersFrom] Copied %s -> %s (rId: %s -> %s)\n",
+				rel.Target, newTarget, rel.ID, newRId)
+		}
+	}
+
+	// Update section properties with the new header/footer references
+	d.updateSectionHeaderFooterRefs(headerTypes, footerTypes)
+
+	return relIDMap
+}
+
+// updateSectionHeaderFooterRefs updates the section properties with new header/footer references
+func (d *Document) updateSectionHeaderFooterRefs(headerTypes, footerTypes map[string]string) {
+	if d.Body == nil || d.Body.Elements == nil {
+		return
+	}
+
+	// Find the section properties (usually at the end of the document)
+	var sectPr *SectionProperties
+	for i := len(d.Body.Elements) - 1; i >= 0; i-- {
+		if sp, ok := d.Body.Elements[i].(*SectionProperties); ok {
+			sectPr = sp
+			break
+		}
+	}
+
+	if sectPr == nil {
+		// Create new section properties if none exist
+		sectPr = &SectionProperties{
+			XmlnsR: "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+		}
+		d.Body.Elements = append(d.Body.Elements, sectPr)
+	}
+
+	// Ensure namespace is set
+	if sectPr.XmlnsR == "" {
+		sectPr.XmlnsR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+	}
+
+	// Update header references
+	for hfType, rId := range headerTypes {
+		wordType := hfType
+		if wordType == "" {
+			wordType = "default"
+		}
+
+		// Check if reference already exists
+		found := false
+		for i, ref := range sectPr.HeaderReferences {
+			if ref.Type == wordType {
+				sectPr.HeaderReferences[i].ID = rId
+				found = true
+				break
+			}
+		}
+		if !found {
+			sectPr.HeaderReferences = append(sectPr.HeaderReferences, &HeaderFooterReference{
+				Type: wordType,
+				ID:   rId,
+			})
+		}
+		fmt.Printf("[updateSectionHeaderFooterRefs] Set header reference: type=%s, rId=%s\n", wordType, rId)
+	}
+
+	// Update footer references
+	for hfType, rId := range footerTypes {
+		wordType := hfType
+		if wordType == "" {
+			wordType = "default"
+		}
+
+		// Check if reference already exists
+		found := false
+		for i, ref := range sectPr.FooterReferences {
+			if ref.Type == wordType {
+				sectPr.FooterReferences[i].ID = rId
+				found = true
+				break
+			}
+		}
+		if !found {
+			sectPr.FooterReferences = append(sectPr.FooterReferences, &FooterReference{
+				Type: wordType,
+				ID:   rId,
+			})
+		}
+		fmt.Printf("[updateSectionHeaderFooterRefs] Set footer reference: type=%s, rId=%s\n", wordType, rId)
+	}
+}
+
+// copyHeaderFooterImages copies images referenced by a header/footer from source to destination
+// Returns a map of old rId -> new rId for images
+func (d *Document) copyHeaderFooterImages(source *Document, relsData []byte, highestImageNum, highestRId *int) map[string]string {
+	imageMap := make(map[string]string)
+	
+	// Parse the relationships XML to find image references
+	type HFRelationship struct {
+		ID     string `xml:"Id,attr"`
+		Type   string `xml:"Type,attr"`
+		Target string `xml:"Target,attr"`
+	}
+	type HFRelationships struct {
+		XMLName       xml.Name         `xml:"Relationships"`
+		Relationships []HFRelationship `xml:"Relationship"`
+	}
+	
+	var rels HFRelationships
+	if err := xml.Unmarshal(relsData, &rels); err != nil {
+		fmt.Printf("[copyHeaderFooterImages] Warning: failed to parse rels: %v\n", err)
+		return imageMap
+	}
+	
+	for _, rel := range rels.Relationships {
+		if rel.Type != "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" {
+			continue
+		}
+		
+		// Get the source image data
+		sourceImagePath := "word/" + rel.Target
+		if strings.HasPrefix(rel.Target, "../") {
+			sourceImagePath = "word/" + strings.TrimPrefix(rel.Target, "../")
+		}
+		
+		imageData, exists := source.parts[sourceImagePath]
+		if !exists {
+			fmt.Printf("[copyHeaderFooterImages] Warning: image %s not found\n", sourceImagePath)
+			continue
+		}
+		
+		// Generate new image filename
+		*highestImageNum++
+		ext := "png"
+		if idx := strings.LastIndex(rel.Target, "."); idx > 0 {
+			ext = rel.Target[idx+1:]
+		}
+		newTarget := fmt.Sprintf("media/image%d.%s", *highestImageNum, ext)
+		
+		// Copy the image
+		d.parts["word/"+newTarget] = make([]byte, len(imageData))
+		copy(d.parts["word/"+newTarget], imageData)
+		
+		// Add content type if needed
+		d.addContentType("word/"+newTarget, "image/"+ext)
+		
+		// Map old rId to new target (we'll use the same rId in the header/footer rels)
+		imageMap[rel.ID] = newTarget
+		
+		fmt.Printf("[copyHeaderFooterImages] Copied image: %s -> %s\n", rel.Target, newTarget)
+	}
+	
+	return imageMap
+}
+
+// updateHeaderFooterRelsFile updates the relationship file with new image targets
+func (d *Document) updateHeaderFooterRelsFile(relsData []byte, imageMap map[string]string) []byte {
+	content := string(relsData)
+	
+	for oldRId, newTarget := range imageMap {
+		// Find and replace the target for this relationship
+		// Look for Target="media/imageX.ext" or Target="../media/imageX.ext" patterns
+		oldPattern := fmt.Sprintf(`Id="%s"`, oldRId)
+		if strings.Contains(content, oldPattern) {
+			// Find the Target attribute for this relationship and update it
+			// This is a simple approach - for complex cases, proper XML manipulation would be better
+			startIdx := strings.Index(content, oldPattern)
+			if startIdx >= 0 {
+				// Find the start of this Relationship element
+				relStart := strings.LastIndex(content[:startIdx], "<Relationship")
+				if relStart >= 0 {
+					// Find the end of this Relationship element
+					relEnd := strings.Index(content[relStart:], "/>")
+					if relEnd >= 0 {
+						relEnd += relStart + 2
+						relElement := content[relStart:relEnd]
+						
+						// Update the Target attribute
+						targetPattern := regexp.MustCompile(`Target="[^"]*"`)
+						newRelElement := targetPattern.ReplaceAllString(relElement, fmt.Sprintf(`Target="%s"`, newTarget))
+						
+						content = content[:relStart] + newRelElement + content[relEnd:]
+					}
+				}
+			}
+		}
+	}
+	
+	return []byte(content)
 }
 
 // UpdateElementImageReferences updates image references in elements using the provided ID map
