@@ -272,10 +272,23 @@ func unescapeRawXMLMarkers(data []byte) []byte {
 // unescapeXMLEntities unescapes XML entities in the given byte slice
 func unescapeXMLEntities(data []byte) []byte {
 	s := string(data)
+	// Handle named entities
 	s = strings.ReplaceAll(s, "&lt;", "<")
 	s = strings.ReplaceAll(s, "&gt;", ">")
 	s = strings.ReplaceAll(s, "&amp;", "&")
 	s = strings.ReplaceAll(s, "&quot;", "\"")
 	s = strings.ReplaceAll(s, "&apos;", "'")
+	// Handle numeric entities for common characters
+	s = strings.ReplaceAll(s, "&#34;", "\"")  // Double quote
+	s = strings.ReplaceAll(s, "&#39;", "'")   // Single quote
+	s = strings.ReplaceAll(s, "&#60;", "<")   // Less than
+	s = strings.ReplaceAll(s, "&#62;", ">")   // Greater than
+	s = strings.ReplaceAll(s, "&#38;", "&")   // Ampersand
+	// Handle hex numeric entities
+	s = strings.ReplaceAll(s, "&#x22;", "\"") // Double quote (hex)
+	s = strings.ReplaceAll(s, "&#x27;", "'")  // Single quote (hex)
+	s = strings.ReplaceAll(s, "&#x3C;", "<")  // Less than (hex)
+	s = strings.ReplaceAll(s, "&#x3E;", ">")  // Greater than (hex)
+	s = strings.ReplaceAll(s, "&#x26;", "&")  // Ampersand (hex)
 	return []byte(s)
 }
