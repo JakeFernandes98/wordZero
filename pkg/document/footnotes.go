@@ -135,6 +135,13 @@ type Settings struct {
 	CharacterSpacingControl *CharacterSpacingControl `xml:"w:characterSpacingControl,omitempty"`
 	FootnotePr              *FootnotePr              `xml:"w:footnotePr,omitempty"`
 	EndnotePr               *EndnotePr               `xml:"w:endnotePr,omitempty"`
+	UpdateFields            *UpdateFields            `xml:"w:updateFields,omitempty"`
+}
+
+// UpdateFields tells Word to update all fields when the document is opened
+type UpdateFields struct {
+	XMLName xml.Name `xml:"w:updateFields"`
+	Val     string   `xml:"w:val,attr"`
 }
 
 // DefaultTabStop 默认制表位设置
@@ -791,4 +798,26 @@ func (d *Document) addSettingsRelationship() {
 		Target: "word/settings.xml",
 	}
 	d.relationships.Relationships = append(d.relationships.Relationships, relationship)
+}
+
+// SetUpdateFieldsOnOpen configures the document to prompt Word to update all fields
+// (including TOC, page numbers, etc.) when the document is opened.
+// This is useful for documents with Table of Contents or List of Tables that need
+// page numbers to be calculated by Word's layout engine.
+func (d *Document) SetUpdateFieldsOnOpen(enabled bool) error {
+	// Parse existing settings or create new ones
+	settings, err := d.parseSettings()
+	if err != nil {
+		settings = d.createDefaultSettings()
+	}
+
+	if enabled {
+		settings.UpdateFields = &UpdateFields{
+			Val: "true",
+		}
+	} else {
+		settings.UpdateFields = nil
+	}
+
+	return d.saveSettings(settings)
 }
