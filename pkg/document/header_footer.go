@@ -434,12 +434,67 @@ func (d *Document) AddHeaderWithPageNumber(headerType HeaderFooterType, text str
 // MergePageNumberIntoFooter adds a page number to an existing footer, or creates a new footer if none exists.
 // This preserves any existing footer content from templates by using raw XML manipulation.
 func (d *Document) MergePageNumberIntoFooter(footerType HeaderFooterType) error {
+	// First, try to find the existing footer from section properties
+	var footerID string
+	var footerTarget string
+	
+	// Look up the footer reference from section properties
+	sectPr := d.getSectionPropertiesForHeaderFooter()
+	if sectPr != nil && sectPr.FooterReferences != nil {
+		for _, ref := range sectPr.FooterReferences {
+			if ref.Type == string(footerType) {
+				footerID = ref.ID
+				break
+			}
+		}
+	}
+	
+	// If we found a footer reference, look up the actual file target
+	if footerID != "" && d.documentRelationships != nil {
+		for _, rel := range d.documentRelationships.Relationships {
+			if rel.ID == footerID {
+				footerTarget = rel.Target
+				break
+			}
+		}
+	}
+	
+	// If we found an existing footer, modify it
+	if footerTarget != "" {
+		footerPartName := "word/" + footerTarget
+		if existingFooterXML, exists := d.parts[footerPartName]; exists {
+			fmt.Printf("[MergePageNumberIntoFooter] Found existing footer: %s (rId: %s)\n", footerTarget, footerID)
+			
+			// Use raw XML manipulation to preserve complex content
+			// Find the closing </w:ftr> tag and insert the page number paragraph before it
+			pageNumXML := createPageNumberParagraphXML()
+			
+			xmlStr := string(existingFooterXML)
+			closingTag := "</w:ftr>"
+			closingIdx := strings.LastIndex(xmlStr, closingTag)
+			if closingIdx == -1 {
+				// Try alternative closing tag format
+				closingTag = "</ftr>"
+				closingIdx = strings.LastIndex(xmlStr, closingTag)
+			}
+			
+			if closingIdx != -1 {
+				// Insert page number paragraph before the closing tag
+				newXML := xmlStr[:closingIdx] + pageNumXML + xmlStr[closingIdx:]
+				d.parts[footerPartName] = []byte(newXML)
+				fmt.Printf("[MergePageNumberIntoFooter] Added page number to existing footer\n")
+				return nil
+			}
+			
+			fmt.Printf("[MergePageNumberIntoFooter] Warning: Could not find closing tag in %s, using fallback method\n", footerTarget)
+		}
+	}
+	
+	// Fallback: use the default filename approach
 	fileName := getFileNameForType("footer", footerType)
 	footerPartName := fmt.Sprintf("word/%s", fileName)
 	
-	var footerID string
-	
-	// Check if footer already exists in parts
+	// Check if footer already exists in parts with default name
 	if existingFooterXML, exists := d.parts[footerPartName]; exists {
 		// Find the existing relationship ID for this footer
 		for _, rel := range d.documentRelationships.Relationships {
@@ -450,31 +505,27 @@ func (d *Document) MergePageNumberIntoFooter(footerType HeaderFooterType) error 
 		}
 		
 		// Use raw XML manipulation to preserve complex content
-		// Find the closing </w:ftr> tag and insert the page number paragraph before it
 		pageNumXML := createPageNumberParagraphXML()
 		
 		xmlStr := string(existingFooterXML)
 		closingTag := "</w:ftr>"
 		closingIdx := strings.LastIndex(xmlStr, closingTag)
 		if closingIdx == -1 {
-			// Try alternative closing tag format
 			closingTag = "</ftr>"
 			closingIdx = strings.LastIndex(xmlStr, closingTag)
 		}
 		
 		if closingIdx != -1 {
-			// Insert page number paragraph before the closing tag
 			newXML := xmlStr[:closingIdx] + pageNumXML + xmlStr[closingIdx:]
 			d.parts[footerPartName] = []byte(newXML)
 			return nil
 		}
 		
-		// If we can't find the closing tag, fall back to the old method
-		// (this shouldn't happen with valid DOCX files)
 		fmt.Printf("[MergePageNumberIntoFooter] Warning: Could not find closing tag, using fallback method\n")
 	}
 	
-	// No existing footer or fallback - create a new one
+	// No existing footer - create a new one
+	fmt.Printf("[MergePageNumberIntoFooter] Creating new footer: %s\n", fileName)
 	footer := createStandardFooter()
 	
 	// Create page number paragraph with centered alignment
