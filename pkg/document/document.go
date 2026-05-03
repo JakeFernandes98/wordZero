@@ -208,11 +208,17 @@ type Run struct {
 	XMLName     xml.Name        `xml:"w:r"`
 	Properties  *RunProperties  `xml:"w:rPr,omitempty"`
 	Text        Text            `xml:"w:t,omitempty"`
-	Break       *Break          `xml:"w:br,omitempty"` // 分页符 / Page break
+	Tab         *Tab            `xml:"w:tab,omitempty"` // Tab character
+	Break       *Break          `xml:"w:br,omitempty"`  // 分页符 / Page break
 	Drawing     *DrawingElement `xml:"w:drawing,omitempty"`
 	FieldChar   *FieldChar      `xml:"w:fldChar,omitempty"`
 	InstrText   *InstrText      `xml:"w:instrText,omitempty"`
 	RawElements []*RawElement   `xml:"-"` // Raw XML elements (mc:AlternateContent, etc.)
+}
+
+// Tab represents a tab character in Word
+type Tab struct {
+	XMLName xml.Name `xml:"w:tab"`
 }
 
 // MarshalXML 自定义Run的XML序列化
@@ -226,6 +232,13 @@ func (r *Run) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	// 序列化RunProperties（如果存在）
 	if r.Properties != nil {
 		if err := e.EncodeElement(r.Properties, xml.StartElement{Name: xml.Name{Local: "w:rPr"}}); err != nil {
+			return err
+		}
+	}
+
+	// 序列化Tab（如果存在）- must come before text
+	if r.Tab != nil {
+		if err := e.EncodeElement(r.Tab, xml.StartElement{Name: xml.Name{Local: "w:tab"}}); err != nil {
 			return err
 		}
 	}

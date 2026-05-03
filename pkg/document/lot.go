@@ -571,10 +571,10 @@ func (d *Document) createLOTEntry(entry LOTEntry, config *LOTConfig, fontFamily 
 		Text:       Text{Content: entry.Caption},
 	})
 
-	// Add tab for page number
+	// Add tab for page number (using proper Tab element)
 	para.Runs = append(para.Runs, Run{
 		Properties: runProps,
-		Text:       Text{Content: "\t"},
+		Tab:        &Tab{},
 	})
 
 	// Only add PAGEREF field if we have a valid bookmark

@@ -1034,10 +1034,10 @@ func (d *Document) createTOCEntryWithFieldsStyled(entry TOCEntry, config *TOCCon
 		Text:       Text{Content: entry.Text},
 	})
 
-	// 添加制表符
+	// 添加制表符 (using proper Tab element, not \t in text)
 	para.Runs = append(para.Runs, Run{
 		Properties: runProps,
-		Text:       Text{Content: "\t"},
+		Tab:        &Tab{},
 	})
 
 	// 添加页码引用域

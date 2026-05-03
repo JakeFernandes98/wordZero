@@ -101,11 +101,6 @@ type DocPart struct {
 	Val     string   `xml:"w:val,attr"`
 }
 
-// Tab 制表符
-type Tab struct {
-	XMLName xml.Name `xml:"w:tab"`
-}
-
 // CreateTOCSDT 创建目录SDT结构
 func (d *Document) CreateTOCSDT(title string, maxLevel int) *SDT {
 	sdt := &SDT{
