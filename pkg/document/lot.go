@@ -334,14 +334,14 @@ func (d *Document) scanForSEQFields(seqIdentifier string) []LOTEntry {
 			// Extract caption text (remove the "Table X: " prefix if present)
 			fullCaption := strings.TrimSpace(captionText.String())
 			
-			// Generate a bookmark ID for this caption
-			bookmarkID := fmt.Sprintf("_RefScanned%s%d", seqIdentifier, generateUniqueID(fullCaption))
-
+			// For scanned entries, we don't have bookmarks, so we'll use empty BookmarkID
+			// The LOT will still show the entries but without working hyperlinks
+			// Word will fix the hyperlinks when the user updates the TOC field
 			entry := LOTEntry{
 				Caption:    fullCaption,
 				Number:     seqNum,
 				PageNum:    1, // Placeholder - Word will update this
-				BookmarkID: bookmarkID,
+				BookmarkID: "", // No bookmark - Word will create proper links when TOC is updated
 			}
 			entries = append(entries, entry)
 		}
@@ -535,7 +535,10 @@ func (d *Document) createLOTEntry(entry LOTEntry, config *LOTConfig, fontFamily 
 		FontSize:   &FontSize{Val: fontSizeVal},
 	}
 
-	if config.UseHyperlink {
+	// Only add hyperlink if we have a valid bookmark ID
+	hasBookmark := entry.BookmarkID != ""
+	
+	if config.UseHyperlink && hasBookmark {
 		// Add hyperlink field begin
 		para.Runs = append(para.Runs, Run{
 			Properties: runProps,
@@ -574,44 +577,53 @@ func (d *Document) createLOTEntry(entry LOTEntry, config *LOTConfig, fontFamily 
 		Text:       Text{Content: "\t"},
 	})
 
-	// Add PAGEREF field for page number
-	para.Runs = append(para.Runs, Run{
-		Properties: runProps,
-		FieldChar: &FieldChar{
-			FieldCharType: "begin",
-		},
-	})
+	// Only add PAGEREF field if we have a valid bookmark
+	if hasBookmark {
+		// Add PAGEREF field for page number
+		para.Runs = append(para.Runs, Run{
+			Properties: runProps,
+			FieldChar: &FieldChar{
+				FieldCharType: "begin",
+			},
+		})
 
-	para.Runs = append(para.Runs, Run{
-		Properties: runProps,
-		InstrText: &InstrText{
-			Space:   "preserve",
-			Content: fmt.Sprintf(" PAGEREF %s \\h ", entry.BookmarkID),
-		},
-	})
+		para.Runs = append(para.Runs, Run{
+			Properties: runProps,
+			InstrText: &InstrText{
+				Space:   "preserve",
+				Content: fmt.Sprintf(" PAGEREF %s \\h ", entry.BookmarkID),
+			},
+		})
 
-	para.Runs = append(para.Runs, Run{
-		Properties: runProps,
-		FieldChar: &FieldChar{
-			FieldCharType: "separate",
-		},
-	})
+		para.Runs = append(para.Runs, Run{
+			Properties: runProps,
+			FieldChar: &FieldChar{
+				FieldCharType: "separate",
+			},
+		})
 
-	// Page number placeholder
-	para.Runs = append(para.Runs, Run{
-		Properties: runProps,
-		Text:       Text{Content: fmt.Sprintf("%d", entry.PageNum)},
-	})
+		// Page number placeholder
+		para.Runs = append(para.Runs, Run{
+			Properties: runProps,
+			Text:       Text{Content: fmt.Sprintf("%d", entry.PageNum)},
+		})
 
-	// PAGEREF field end
-	para.Runs = append(para.Runs, Run{
-		Properties: runProps,
-		FieldChar: &FieldChar{
-			FieldCharType: "end",
-		},
-	})
+		// PAGEREF field end
+		para.Runs = append(para.Runs, Run{
+			Properties: runProps,
+			FieldChar: &FieldChar{
+				FieldCharType: "end",
+			},
+		})
+	} else {
+		// No bookmark - just add page number as plain text
+		para.Runs = append(para.Runs, Run{
+			Properties: runProps,
+			Text:       Text{Content: fmt.Sprintf("%d", entry.PageNum)},
+		})
+	}
 
-	if config.UseHyperlink {
+	if config.UseHyperlink && hasBookmark {
 		// Hyperlink field end
 		para.Runs = append(para.Runs, Run{
 			Properties: runProps,

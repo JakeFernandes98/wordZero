@@ -205,13 +205,14 @@ type OutlineLevel struct {
 
 // Run 表示一段文本
 type Run struct {
-	XMLName    xml.Name        `xml:"w:r"`
-	Properties *RunProperties  `xml:"w:rPr,omitempty"`
-	Text       Text            `xml:"w:t,omitempty"`
-	Break      *Break          `xml:"w:br,omitempty"` // 分页符 / Page break
-	Drawing    *DrawingElement `xml:"w:drawing,omitempty"`
-	FieldChar  *FieldChar      `xml:"w:fldChar,omitempty"`
-	InstrText  *InstrText      `xml:"w:instrText,omitempty"`
+	XMLName     xml.Name        `xml:"w:r"`
+	Properties  *RunProperties  `xml:"w:rPr,omitempty"`
+	Text        Text            `xml:"w:t,omitempty"`
+	Break       *Break          `xml:"w:br,omitempty"` // 分页符 / Page break
+	Drawing     *DrawingElement `xml:"w:drawing,omitempty"`
+	FieldChar   *FieldChar      `xml:"w:fldChar,omitempty"`
+	InstrText   *InstrText      `xml:"w:instrText,omitempty"`
+	RawElements []*RawElement   `xml:"-"` // Raw XML elements (mc:AlternateContent, etc.)
 }
 
 // MarshalXML 自定义Run的XML序列化
@@ -262,6 +263,16 @@ func (r *Run) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	if r.InstrText != nil {
 		if err := e.EncodeElement(r.InstrText, xml.StartElement{Name: xml.Name{Local: "w:instrText"}}); err != nil {
 			return err
+		}
+	}
+
+	// 序列化RawElements（如果存在）- 用于保留mc:AlternateContent等复杂内容
+	for _, rawElem := range r.RawElements {
+		if rawElem != nil {
+			// Use markers that will be post-processed
+			if err := e.EncodeToken(xml.CharData([]byte("__RAW_XML_START__" + rawElem.RawXML + "__RAW_XML_END__"))); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -2715,9 +2726,12 @@ func (d *Document) parseRun(decoder *xml.Decoder, startElement xml.StartElement)
 				}
 				run.Drawing = drawing
 			default:
-				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+				// Capture unknown elements as raw XML (e.g., mc:AlternateContent for shapes)
+				rawElem, err := captureRawElement(decoder, t)
+				if err != nil {
 					return nil, err
 				}
+				run.RawElements = append(run.RawElements, rawElem)
 			}
 		case xml.EndElement:
 			if t.Name.Local == "r" {
