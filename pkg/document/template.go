@@ -2482,6 +2482,21 @@ func (te *TemplateEngine) replaceVariablesInTableWithData(table *Table, itemMap 
 
 // replaceVariablesInParagraph 在段落中替换变量（改进版本，更好地保持样式）
 func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *TemplateData) error {
+	// Process raw elements in runs (for shapes, text boxes, etc.)
+	for i := range para.Runs {
+		if len(para.Runs[i].RawElements) > 0 {
+			for j := range para.Runs[i].RawElements {
+				if para.Runs[i].RawElements[j] != nil {
+					// Replace variables in raw XML content
+					newXML, err := te.replaceVariablesInXMLPart([]byte(para.Runs[i].RawElements[j].RawXML), data)
+					if err == nil {
+						para.Runs[i].RawElements[j].RawXML = string(newXML)
+					}
+				}
+			}
+		}
+	}
+
 	// 首先识别所有变量占位符的位置
 	fullText := ""
 	runInfos := make([]struct {
