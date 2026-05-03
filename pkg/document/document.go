@@ -3287,26 +3287,48 @@ func getAttributeValue(attrs []xml.Attr, name string) string {
 func (d *Document) serializeDocument() error {
 	Debugf("开始序列化文档")
 
-	// 创建文档结构
+	// 创建文档结构 with all namespaces needed for complex content
 	type documentXML struct {
-		XMLName  xml.Name `xml:"w:document"`
-		Xmlns    string   `xml:"xmlns:w,attr"`
-		XmlnsW15 string   `xml:"xmlns:w15,attr"`
-		XmlnsWP  string   `xml:"xmlns:wp,attr"`
-		XmlnsA   string   `xml:"xmlns:a,attr"`
-		XmlnsPic string   `xml:"xmlns:pic,attr"`
-		XmlnsR   string   `xml:"xmlns:r,attr"`
-		Body     *Body    `xml:"w:body"`
+		XMLName     xml.Name `xml:"w:document"`
+		Xmlns       string   `xml:"xmlns:w,attr"`
+		XmlnsW15    string   `xml:"xmlns:w15,attr"`
+		XmlnsWP     string   `xml:"xmlns:wp,attr"`
+		XmlnsA      string   `xml:"xmlns:a,attr"`
+		XmlnsPic    string   `xml:"xmlns:pic,attr"`
+		XmlnsR      string   `xml:"xmlns:r,attr"`
+		XmlnsMC     string   `xml:"xmlns:mc,attr"`
+		XmlnsW14    string   `xml:"xmlns:w14,attr"`
+		XmlnsWP14   string   `xml:"xmlns:wp14,attr"`
+		XmlnsWPS    string   `xml:"xmlns:wps,attr"`
+		XmlnsWPG    string   `xml:"xmlns:wpg,attr"`
+		XmlnsV      string   `xml:"xmlns:v,attr"`
+		XmlnsO      string   `xml:"xmlns:o,attr"`
+		XmlnsW10    string   `xml:"xmlns:w10,attr"`
+		XmlnsM      string   `xml:"xmlns:m,attr"`
+		XmlnsA14    string   `xml:"xmlns:a14,attr"`
+		MCIgnorable string   `xml:"mc:Ignorable,attr"`
+		Body        *Body    `xml:"w:body"`
 	}
 
 	doc := documentXML{
-		Xmlns:    "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-		XmlnsW15: "http://schemas.microsoft.com/office/word/2012/wordml",
-		XmlnsWP:  "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
-		XmlnsA:   "http://schemas.openxmlformats.org/drawingml/2006/main",
-		XmlnsPic: "http://schemas.openxmlformats.org/drawingml/2006/picture",
-		XmlnsR:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-		Body:     d.Body,
+		Xmlns:       "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+		XmlnsW15:    "http://schemas.microsoft.com/office/word/2012/wordml",
+		XmlnsWP:     "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+		XmlnsA:      "http://schemas.openxmlformats.org/drawingml/2006/main",
+		XmlnsPic:    "http://schemas.openxmlformats.org/drawingml/2006/picture",
+		XmlnsR:      "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+		XmlnsMC:     "http://schemas.openxmlformats.org/markup-compatibility/2006",
+		XmlnsW14:    "http://schemas.microsoft.com/office/word/2010/wordml",
+		XmlnsWP14:   "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing",
+		XmlnsWPS:    "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
+		XmlnsWPG:    "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup",
+		XmlnsV:      "urn:schemas-microsoft-com:vml",
+		XmlnsO:      "urn:schemas-microsoft-com:office:office",
+		XmlnsW10:    "urn:schemas-microsoft-com:office:word",
+		XmlnsM:      "http://schemas.openxmlformats.org/officeDocument/2006/math",
+		XmlnsA14:    "http://schemas.microsoft.com/office/drawing/2010/main",
+		MCIgnorable: "w14 w15 wp14",
+		Body:        d.Body,
 	}
 
 	// 序列化为XML
