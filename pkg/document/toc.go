@@ -40,7 +40,10 @@ type TOCField struct {
 // Hyperlink 超链接结构
 type Hyperlink struct {
 	XMLName xml.Name `xml:"w:hyperlink"`
-	Anchor  string   `xml:"w:anchor,attr,omitempty"`
+	ID      string   `xml:"r:id,attr,omitempty"`      // Relationship ID for external links
+	Anchor  string   `xml:"w:anchor,attr,omitempty"`  // Internal bookmark anchor
+	Tooltip string   `xml:"w:tooltip,attr,omitempty"` // Tooltip text
+	History string   `xml:"w:history,attr,omitempty"` // History flag
 	Runs    []Run    `xml:"w:r"`
 }
 

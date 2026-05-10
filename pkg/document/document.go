@@ -114,6 +114,79 @@ type Paragraph struct {
 	XMLName    xml.Name             `xml:"w:p"`
 	Properties *ParagraphProperties `xml:"w:pPr,omitempty"`
 	Runs       []Run                `xml:"w:r"`
+	Hyperlinks []Hyperlink          `xml:"-"` // Hyperlinks are serialized via custom MarshalXML
+}
+
+// ParagraphContent represents either a Run or a Hyperlink in a paragraph
+type ParagraphContent struct {
+	Type      string     // "run" or "hyperlink"
+	Run       *Run
+	Hyperlink *Hyperlink
+}
+
+// MarshalXML custom marshaler for Paragraph to handle mixed runs and hyperlinks
+func (p *Paragraph) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	// Start paragraph element
+	start.Name = xml.Name{Local: "w:p"}
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+
+	// Serialize paragraph properties if present
+	if p.Properties != nil {
+		if err := e.EncodeElement(p.Properties, xml.StartElement{Name: xml.Name{Local: "w:pPr"}}); err != nil {
+			return err
+		}
+	}
+
+	// Serialize runs
+	for _, run := range p.Runs {
+		if err := e.EncodeElement(run, xml.StartElement{Name: xml.Name{Local: "w:r"}}); err != nil {
+			return err
+		}
+	}
+
+	// Serialize hyperlinks
+	for _, hyperlink := range p.Hyperlinks {
+		if err := encodeHyperlink(e, &hyperlink); err != nil {
+			return err
+		}
+	}
+
+	// End paragraph element
+	return e.EncodeToken(start.End())
+}
+
+// encodeHyperlink encodes a hyperlink element with its attributes and runs
+func encodeHyperlink(e *xml.Encoder, h *Hyperlink) error {
+	start := xml.StartElement{Name: xml.Name{Local: "w:hyperlink"}}
+
+	// Add attributes
+	if h.ID != "" {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "r:id"}, Value: h.ID})
+	}
+	if h.Anchor != "" {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "w:anchor"}, Value: h.Anchor})
+	}
+	if h.Tooltip != "" {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "w:tooltip"}, Value: h.Tooltip})
+	}
+	if h.History != "" {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "w:history"}, Value: h.History})
+	}
+
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+
+	// Encode runs inside hyperlink
+	for _, run := range h.Runs {
+		if err := e.EncodeElement(run, xml.StartElement{Name: xml.Name{Local: "w:r"}}); err != nil {
+			return err
+		}
+	}
+
+	return e.EncodeToken(start.End())
 }
 
 // ParagraphProperties 段落属性
@@ -406,9 +479,10 @@ type Relationships struct {
 
 // Relationship 单个关系
 type Relationship struct {
-	ID     string `xml:"Id,attr"`
-	Type   string `xml:"Type,attr"`
-	Target string `xml:"Target,attr"`
+	ID         string `xml:"Id,attr"`
+	Type       string `xml:"Type,attr"`
+	Target     string `xml:"Target,attr"`
+	TargetMode string `xml:"TargetMode,attr,omitempty"` // "External" for external hyperlinks
 }
 
 // ContentTypes 内容类型
@@ -2869,7 +2943,8 @@ func (d *Document) parseBodySubElement(decoder *xml.Decoder, startElement xml.St
 // parseParagraph 解析段落
 func (d *Document) parseParagraph(decoder *xml.Decoder, startElement xml.StartElement) (*Paragraph, error) {
 	paragraph := &Paragraph{
-		Runs: make([]Run, 0),
+		Runs:       make([]Run, 0),
+		Hyperlinks: make([]Hyperlink, 0),
 	}
 
 	for {
@@ -2894,6 +2969,15 @@ func (d *Document) parseParagraph(decoder *xml.Decoder, startElement xml.StartEl
 				}
 				if run != nil {
 					paragraph.Runs = append(paragraph.Runs, *run)
+				}
+			case "hyperlink":
+				// Parse hyperlink element
+				hyperlink, err := d.parseHyperlink(decoder, t)
+				if err != nil {
+					return nil, err
+				}
+				if hyperlink != nil {
+					paragraph.Hyperlinks = append(paragraph.Hyperlinks, *hyperlink)
 				}
 			default:
 				// 跳过其他元素
@@ -3036,6 +3120,58 @@ func (d *Document) parseNumberingProperties(decoder *xml.Decoder) (*NumberingPro
 		case xml.EndElement:
 			if t.Name.Local == "numPr" {
 				return numPr, nil
+			}
+		}
+	}
+}
+
+// parseHyperlink parses a hyperlink element (w:hyperlink)
+func (d *Document) parseHyperlink(decoder *xml.Decoder, startElement xml.StartElement) (*Hyperlink, error) {
+	hyperlink := &Hyperlink{
+		Runs: make([]Run, 0),
+	}
+
+	// Extract attributes from the start element
+	for _, attr := range startElement.Attr {
+		switch attr.Name.Local {
+		case "id":
+			hyperlink.ID = attr.Value
+		case "anchor":
+			hyperlink.Anchor = attr.Value
+		case "tooltip":
+			hyperlink.Tooltip = attr.Value
+		case "history":
+			hyperlink.History = attr.Value
+		}
+	}
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, WrapError("parse_hyperlink", err)
+		}
+
+		switch t := token.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "r":
+				// Parse run inside hyperlink
+				run, err := d.parseRun(decoder, t)
+				if err != nil {
+					return nil, err
+				}
+				if run != nil {
+					hyperlink.Runs = append(hyperlink.Runs, *run)
+				}
+			default:
+				// Skip other elements inside hyperlink
+				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+					return nil, err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == "hyperlink" {
+				return hyperlink, nil
 			}
 		}
 	}
