@@ -134,21 +134,21 @@ func (p *Paragraph) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 
 	// Serialize paragraph properties if present
 	if p.Properties != nil {
-		if err := e.EncodeElement(p.Properties, xml.StartElement{Name: xml.Name{Local: "w:pPr"}}); err != nil {
+		if err := e.Encode(p.Properties); err != nil {
 			return err
 		}
 	}
 
 	// Serialize runs
-	for _, run := range p.Runs {
-		if err := e.EncodeElement(run, xml.StartElement{Name: xml.Name{Local: "w:r"}}); err != nil {
+	for i := range p.Runs {
+		if err := e.Encode(&p.Runs[i]); err != nil {
 			return err
 		}
 	}
 
 	// Serialize hyperlinks
-	for _, hyperlink := range p.Hyperlinks {
-		if err := encodeHyperlink(e, &hyperlink); err != nil {
+	for i := range p.Hyperlinks {
+		if err := encodeHyperlink(e, &p.Hyperlinks[i]); err != nil {
 			return err
 		}
 	}
@@ -180,8 +180,8 @@ func encodeHyperlink(e *xml.Encoder, h *Hyperlink) error {
 	}
 
 	// Encode runs inside hyperlink
-	for _, run := range h.Runs {
-		if err := e.EncodeElement(run, xml.StartElement{Name: xml.Name{Local: "w:r"}}); err != nil {
+	for i := range h.Runs {
+		if err := e.Encode(&h.Runs[i]); err != nil {
 			return err
 		}
 	}
