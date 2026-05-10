@@ -2651,6 +2651,8 @@ func (te *TemplateEngine) replaceVariablesSequentially(originalRunInfos []struct
 			if varRun != nil {
 				newRun := te.cloneRun(varRun)
 				newRun.Text.Content = replacementText
+				// Always preserve whitespace in replaced text
+				newRun.Text.Space = "preserve"
 				newRuns = append(newRuns, newRun)
 				hasChanges = true
 			}
@@ -2701,6 +2703,8 @@ func (te *TemplateEngine) processConditionalsPreservingRuns(runs []Run, data *Te
 		if processedContent != originalContent {
 			newRun := run // 复制Run结构
 			newRun.Text.Content = processedContent
+			// Preserve whitespace in processed text
+			newRun.Text.Space = "preserve"
 			finalRuns = append(finalRuns, newRun)
 		} else {
 			// 内容没有变化，保持原样
@@ -2733,12 +2737,16 @@ func (te *TemplateEngine) processConditionals(originalRunInfos []struct {
 	if len(originalRunInfos) == 1 {
 		newRun := te.cloneRun(originalRunInfos[0].run)
 		newRun.Text.Content = processedText
+		// Preserve whitespace in processed text
+		newRun.Text.Space = "preserve"
 		return []Run{newRun}, true
 	}
 
 	// 多个Run的情况，使用第一个Run的样式
 	newRun := te.cloneRun(originalRunInfos[0].run)
 	newRun.Text.Content = processedText
+	// Preserve whitespace in processed text
+	newRun.Text.Space = "preserve"
 	return []Run{newRun}, true
 }
 
