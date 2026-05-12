@@ -3063,6 +3063,7 @@ func (d *Document) parseHyperlink(decoder *xml.Decoder, startElement xml.StartEl
 	for _, attr := range startElement.Attr {
 		switch attr.Name.Local {
 		case "id":
+			// r:id attribute - relationship ID for external links
 			hyperlink.ID = attr.Value
 		case "anchor":
 			hyperlink.Anchor = attr.Value
@@ -3071,6 +3072,11 @@ func (d *Document) parseHyperlink(decoder *xml.Decoder, startElement xml.StartEl
 		case "history":
 			hyperlink.History = attr.Value
 		}
+	}
+
+	// Debug: log if we found a hyperlink with an ID
+	if hyperlink.ID != "" {
+		Debugf("Parsed hyperlink with r:id=%s", hyperlink.ID)
 	}
 
 	for {

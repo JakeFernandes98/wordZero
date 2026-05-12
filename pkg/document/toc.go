@@ -40,11 +40,55 @@ type TOCField struct {
 // Hyperlink 超链接结构
 type Hyperlink struct {
 	XMLName xml.Name `xml:"w:hyperlink"`
-	ID      string   `xml:"r:id,attr,omitempty"`      // Relationship ID for external links
-	Anchor  string   `xml:"w:anchor,attr,omitempty"`  // Internal bookmark anchor
-	Tooltip string   `xml:"w:tooltip,attr,omitempty"` // Tooltip text
-	History string   `xml:"w:history,attr,omitempty"` // History flag
+	ID      string   `xml:"-"` // Relationship ID for external links (serialized via MarshalXML)
+	Anchor  string   `xml:"-"` // Internal bookmark anchor (serialized via MarshalXML)
+	Tooltip string   `xml:"-"` // Tooltip text (serialized via MarshalXML)
+	History string   `xml:"-"` // History flag (serialized via MarshalXML)
 	Runs    []Run    `xml:"w:r"`
+}
+
+// MarshalXML custom marshaler for Hyperlink to properly handle namespaced attributes
+func (h *Hyperlink) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	start.Name = xml.Name{Local: "w:hyperlink"}
+
+	// Add attributes with proper namespace handling
+	if h.ID != "" {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Local: "r:id"},
+			Value: h.ID,
+		})
+	}
+	if h.Anchor != "" {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Local: "w:anchor"},
+			Value: h.Anchor,
+		})
+	}
+	if h.Tooltip != "" {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Local: "w:tooltip"},
+			Value: h.Tooltip,
+		})
+	}
+	if h.History != "" {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Local: "w:history"},
+			Value: h.History,
+		})
+	}
+
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+
+	// Encode runs
+	for i := range h.Runs {
+		if err := e.Encode(&h.Runs[i]); err != nil {
+			return err
+		}
+	}
+
+	return e.EncodeToken(start.End())
 }
 
 // BookmarkEnd 书签结束
