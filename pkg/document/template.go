@@ -2009,11 +2009,14 @@ func (te *TemplateEngine) processDocumentLevelConditionals(doc *Document, data *
 						if strings.TrimSpace(content) != "" || strings.TrimSpace(fullText) != "" {
 							if len(newPara.Runs) > 0 {
 								newPara.Runs[0].Text.Content = content
+								te.setSpacePreserveIfNeeded(&newPara.Runs[0])
 								newPara.Runs = newPara.Runs[:1]
 							} else if content != "" {
-								newPara.Runs = []Run{{
+								newRun := Run{
 									Text: Text{Content: content},
-								}}
+								}
+								te.setSpacePreserveIfNeeded(&newRun)
+								newPara.Runs = []Run{newRun}
 							}
 							// 只有当内容不为空时才添加
 							if strings.TrimSpace(content) != "" {
@@ -2100,11 +2103,14 @@ func (te *TemplateEngine) removeConditionalMarkersFromTable(table *Table) {
 
 				if len(para.Runs) > 0 {
 					para.Runs[0].Text.Content = content
+					te.setSpacePreserveIfNeeded(&para.Runs[0])
 					para.Runs = para.Runs[:1]
 				} else if content != "" {
-					para.Runs = []Run{{
+					newRun := Run{
 						Text: Text{Content: content},
-					}}
+					}
+					te.setSpacePreserveIfNeeded(&newRun)
+					para.Runs = []Run{newRun}
 				}
 			}
 
@@ -2271,12 +2277,15 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 											if len(newPara.Runs) > 0 {
 												// 保留原始Run的属性
 												newPara.Runs[0].Text.Content = content
+												te.setSpacePreserveIfNeeded(&newPara.Runs[0])
 												newPara.Runs = newPara.Runs[:1]
 											} else {
 												// 如果没有原始Run，创建一个不带样式的新Run
-												newPara.Runs = []Run{{
+												newRun := Run{
 													Text: Text{Content: content},
-												}}
+												}
+												te.setSpacePreserveIfNeeded(&newRun)
+												newPara.Runs = []Run{newRun}
 											}
 											newElements = append(newElements, newPara)
 										}
@@ -2361,11 +2370,14 @@ func (te *TemplateEngine) processDocumentLevelLoops(doc *Document, data *Templat
 										if strings.TrimSpace(content) != "" {
 											if len(newPara.Runs) > 0 {
 												newPara.Runs[0].Text.Content = content
+												te.setSpacePreserveIfNeeded(&newPara.Runs[0])
 												newPara.Runs = newPara.Runs[:1]
 											} else {
-												newPara.Runs = []Run{{
+												newRun := Run{
 													Text: Text{Content: content},
-												}}
+												}
+												te.setSpacePreserveIfNeeded(&newRun)
+												newPara.Runs = []Run{newRun}
 											}
 											newElements = append(newElements, newPara)
 										}
@@ -2464,11 +2476,14 @@ func (te *TemplateEngine) replaceVariablesInTableWithData(table *Table, itemMap 
 				// 更新段落内容
 				if len(para.Runs) > 0 {
 					para.Runs[0].Text.Content = content
+					te.setSpacePreserveIfNeeded(&para.Runs[0])
 					para.Runs = para.Runs[:1]
 				} else if content != "" {
-					para.Runs = []Run{{
+					newRun := Run{
 						Text: Text{Content: content},
-					}}
+					}
+					te.setSpacePreserveIfNeeded(&newRun)
+					para.Runs = []Run{newRun}
 				}
 			}
 
@@ -2532,7 +2547,7 @@ func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *Tem
 	processedText, hasLoopChanges := te.processNonTableLoops(fullText, data)
 	if hasLoopChanges {
 		// 重新构建段落
-		para.Runs = []Run{{
+		newRun := Run{
 			Text: Text{Content: processedText},
 			Properties: &RunProperties{
 				FontFamily: &FontFamily{
@@ -2542,7 +2557,9 @@ func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *Tem
 				},
 				Bold: &Bold{},
 			},
-		}}
+		}
+		te.setSpacePreserveIfNeeded(&newRun)
+		para.Runs = []Run{newRun}
 		fullText = processedText
 	}
 
@@ -2774,6 +2791,9 @@ func (te *TemplateEngine) extractRunsForSegment(originalRunInfos []struct {
 				if relativeStart >= 0 && relativeEnd <= len(segmentText) && relativeStart < relativeEnd {
 					newRun.Text.Content = segmentText[relativeStart:relativeEnd]
 					if newRun.Text.Content != "" {
+						// Set xml:space="preserve" if text has leading/trailing whitespace
+						// to prevent Word from collapsing spaces
+						te.setSpacePreserveIfNeeded(&newRun)
 						runs = append(runs, newRun)
 					}
 				}
@@ -2816,6 +2836,18 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// setSpacePreserveIfNeeded sets xml:space="preserve" on a run if its text
+// contains leading or trailing whitespace to prevent Word from collapsing spaces
+func (te *TemplateEngine) setSpacePreserveIfNeeded(run *Run) {
+	if len(run.Text.Content) > 0 {
+		firstChar := run.Text.Content[0]
+		lastChar := run.Text.Content[len(run.Text.Content)-1]
+		if firstChar == ' ' || firstChar == '\t' || lastChar == ' ' || lastChar == '\t' {
+			run.Text.Space = "preserve"
+		}
+	}
 }
 
 // replaceVariablesInTable 在表格中替换变量和处理表格模板
@@ -2987,51 +3019,54 @@ func (te *TemplateEngine) renderTableTemplate(table *Table, data *TemplateData) 
 							}
 						}
 
-						if templateRun != nil {
-							newRun := te.cloneRun(templateRun)
-							newRun.Text.Content = content
-							newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
-						} else {
-							// 使用第一个Run但确保基本样式
-							newRun := te.cloneRun(&originalRuns[0])
-							newRun.Text.Content = content
-							// 确保基本的字体设置
-							if newRun.Properties == nil {
-								newRun.Properties = &RunProperties{}
-							}
-							if newRun.Properties.FontFamily == nil {
-								newRun.Properties.FontFamily = &FontFamily{
-									ASCII:    "仿宋",
-									HAnsi:    "仿宋",
-									EastAsia: "仿宋",
-								}
-							}
-							newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
-						}
+					if templateRun != nil {
+						newRun := te.cloneRun(templateRun)
+						newRun.Text.Content = content
+						te.setSpacePreserveIfNeeded(&newRun)
+						newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
 					} else {
-						// 如果没有原始Run，创建新的但尝试继承段落样式
-						newRun := Run{
-							Text: Text{Content: content},
-							Properties: &RunProperties{
-								FontFamily: &FontFamily{
-									ASCII:    "仿宋",
-									HAnsi:    "仿宋",
-									EastAsia: "仿宋",
-								},
-								Bold: &Bold{},
-							},
+						// 使用第一个Run但确保基本样式
+						newRun := te.cloneRun(&originalRuns[0])
+						newRun.Text.Content = content
+						te.setSpacePreserveIfNeeded(&newRun)
+						// 确保基本的字体设置
+						if newRun.Properties == nil {
+							newRun.Properties = &RunProperties{}
 						}
-
-						// 如果段落有默认的Run属性，尝试继承
-						if len(templateRow.Cells) > i && len(templateRow.Cells[i].Paragraphs) > j {
-							templatePara := &templateRow.Cells[i].Paragraphs[j]
-							if len(templatePara.Runs) > 0 && templatePara.Runs[0].Properties != nil {
-								newRun.Properties = te.cloneRunProperties(templatePara.Runs[0].Properties)
+						if newRun.Properties.FontFamily == nil {
+							newRun.Properties.FontFamily = &FontFamily{
+								ASCII:    "仿宋",
+								HAnsi:    "仿宋",
+								EastAsia: "仿宋",
 							}
 						}
-
 						newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
 					}
+				} else {
+					// 如果没有原始Run，创建新的但尝试继承段落样式
+					newRun := Run{
+						Text: Text{Content: content},
+						Properties: &RunProperties{
+							FontFamily: &FontFamily{
+								ASCII:    "仿宋",
+								HAnsi:    "仿宋",
+								EastAsia: "仿宋",
+							},
+							Bold: &Bold{},
+						},
+					}
+					te.setSpacePreserveIfNeeded(&newRun)
+
+					// 如果段落有默认的Run属性，尝试继承
+					if len(templateRow.Cells) > i && len(templateRow.Cells[i].Paragraphs) > j {
+						templatePara := &templateRow.Cells[i].Paragraphs[j]
+						if len(templatePara.Runs) > 0 && templatePara.Runs[0].Properties != nil {
+							newRun.Properties = te.cloneRunProperties(templatePara.Runs[0].Properties)
+						}
+					}
+
+					newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
+				}
 				}
 
 				// 处理嵌套表格中的变量替换
@@ -3477,12 +3512,15 @@ func (te *TemplateEngine) createTextParagraph(text string, originalPara *Paragra
 	// 设置文本内容，保持原有样式
 	if len(newPara.Runs) > 0 {
 		newPara.Runs[0].Text.Content = text
+		te.setSpacePreserveIfNeeded(&newPara.Runs[0])
 		newPara.Runs = newPara.Runs[:1] // 只保留第一个run
 	} else {
 		// 如果原段落没有runs，创建一个默认的
-		newPara.Runs = []Run{{
+		newRun := Run{
 			Text: Text{Content: text},
-		}}
+		}
+		te.setSpacePreserveIfNeeded(&newRun)
+		newPara.Runs = []Run{newRun}
 	}
 
 	return newPara
