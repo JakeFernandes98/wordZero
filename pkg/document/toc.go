@@ -20,6 +20,10 @@ type TOCConfig struct {
 	FontSize       int     // 字体大小（磅），0则使用默认
 	TitleFontSize  int     // 标题字体大小（磅），0则使用默认
 	IndentPerLevel float64 // 每级缩进量（磅），0则使用默认（720 twips = 0.5 inch）
+	TitleColor     string  // 标题颜色（十六进制，如 "2B7132"），空则使用默认
+	TitleBold      bool    // 标题是否加粗，默认为true
+	TabPosition    int     // 右对齐制表位位置（twips），0则使用默认（8640）
+	LineSpacing    int     // 行间距（如 240=单倍, 360=1.5倍, 480=双倍），0则使用默认
 }
 
 // TOCEntry 目录条目
@@ -128,6 +132,10 @@ func DefaultTOCConfig() *TOCConfig {
 		FontSize:       0,      // Use default (11pt)
 		TitleFontSize:  0,      // Use default (16pt)
 		IndentPerLevel: 0,      // Use default (720 twips = 0.5 inch per level)
+		TitleColor:     "",     // Use default (dark blue)
+		TitleBold:      true,   // Bold title by default
+		TabPosition:    0,      // Use default (8640 twips)
+		LineSpacing:    0,      // Use default (276 = 1.15 line spacing)
 	}
 }
 
@@ -729,6 +737,26 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 		indentPerLevel = 720 // Default 720 twips = 0.5 inch
 	}
 
+	// Determine title color (default to dark blue if not specified)
+	titleColor := config.TitleColor
+	if titleColor == "" {
+		titleColor = "2F5496" // Default dark blue
+	}
+
+	// Determine tab position (default to 8640 twips if not specified)
+	tabPosition := config.TabPosition
+	if tabPosition <= 0 {
+		tabPosition = 8640 // Default tab position
+	}
+	tabPosStr := fmt.Sprintf("%d", tabPosition)
+
+	// Determine line spacing (default to 276 = 1.15 line spacing if not specified)
+	lineSpacing := config.LineSpacing
+	if lineSpacing <= 0 {
+		lineSpacing = 276 // Default 1.15 line spacing
+	}
+	lineSpacingStr := fmt.Sprintf("%d", lineSpacing)
+
 	// 创建目录SDT容器
 	tocSDT := &SDT{
 		Properties: &SDTProperties{
@@ -747,7 +775,7 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 			RunPr: &RunProperties{
 				FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
 				Bold:       &Bold{},
-				Color:      &Color{Val: "2F5496"},
+				Color:      &Color{Val: titleColor},
 				FontSize:   &FontSize{Val: titleFontSizeVal},
 			},
 		},
@@ -756,13 +784,23 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 		},
 	}
 
+	// Build title run properties
+	titleRunProps := &RunProperties{
+		FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+		FontSize:   &FontSize{Val: titleFontSizeVal},
+		Color:      &Color{Val: titleColor},
+	}
+	if config.TitleBold {
+		titleRunProps.Bold = &Bold{}
+	}
+
 	// 添加目录标题段落
 	titlePara := &Paragraph{
 		Properties: &ParagraphProperties{
 			Spacing: &Spacing{
 				Before: "0",
-				After:  "200", // Add some space after title
-				Line:   "276", // 1.15 line spacing
+				After:  "340", // Space after title (matches reference: 340 twips)
+				Line:   "240", // Single line spacing for title
 			},
 			Justification: &Justification{Val: "left"}, // Left align title
 			Indentation: &Indentation{
@@ -773,12 +811,8 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 		},
 		Runs: []Run{
 			{
-				Text: Text{Content: config.Title},
-				Properties: &RunProperties{
-					FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
-					FontSize:   &FontSize{Val: titleFontSizeVal},
-					Bold:       &Bold{},
-				},
+				Text:       Text{Content: config.Title},
+				Properties: titleRunProps,
 			},
 		},
 	}
@@ -788,15 +822,18 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 	// 创建主TOC域段落
 	tocFieldPara := &Paragraph{
 		Properties: &ParagraphProperties{
-			ParagraphStyle: &ParagraphStyle{Val: "12"}, // TOC样式
+			ParagraphStyle: &ParagraphStyle{Val: "TOC1"}, // Use TOC1 style
 			Tabs: &Tabs{
 				Tabs: []TabDef{
 					{
 						Val:    "right",
 						Leader: "dot",
-						Pos:    "8640",
+						Pos:    tabPosStr,
 					},
 				},
+			},
+			Spacing: &Spacing{
+				Line: lineSpacingStr,
 			},
 		},
 		Runs: []Run{},
@@ -849,7 +886,7 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 
 	// 为每个条目创建超链接段落
 	for _, entry := range entries {
-		entryPara := d.createTOCEntryWithFieldsStyled(entry, config, fontFamily, fontSizeVal, indentPerLevel)
+		entryPara := d.createTOCEntryWithFieldsStyled(entry, config, fontFamily, fontSizeVal, indentPerLevel, tabPosStr, lineSpacingStr)
 		tocSDT.Content.Elements = append(tocSDT.Content.Elements, entryPara)
 	}
 
@@ -995,18 +1032,18 @@ func (d *Document) createTOCEntryWithFields(entry TOCEntry, config *TOCConfig) *
 }
 
 // createTOCEntryWithFieldsStyled 创建带样式的目录条目
-func (d *Document) createTOCEntryWithFieldsStyled(entry TOCEntry, config *TOCConfig, fontFamily string, fontSizeVal string, indentPerLevel float64) *Paragraph {
-	// 确定目录样式ID
+func (d *Document) createTOCEntryWithFieldsStyled(entry TOCEntry, config *TOCConfig, fontFamily string, fontSizeVal string, indentPerLevel float64, tabPosStr string, lineSpacingStr string) *Paragraph {
+	// 确定目录样式ID - use standard TOC style names
 	var styleVal string
 	switch entry.Level {
 	case 1:
-		styleVal = "13" // TOC 1
+		styleVal = "TOC1"
 	case 2:
-		styleVal = "14" // TOC 2
+		styleVal = "TOC2"
 	case 3:
-		styleVal = "15" // TOC 3
+		styleVal = "TOC3"
 	default:
-		styleVal = fmt.Sprintf("%d", 12+entry.Level)
+		styleVal = fmt.Sprintf("TOC%d", entry.Level)
 	}
 
 	// Calculate indentation based on level (level 1 = no indent, level 2 = 1x indent, etc.)
@@ -1020,7 +1057,7 @@ func (d *Document) createTOCEntryWithFieldsStyled(entry TOCEntry, config *TOCCon
 					{
 						Val:    "right",
 						Leader: "dot",
-						Pos:    "8640",
+						Pos:    tabPosStr,
 					},
 				},
 			},
@@ -1028,9 +1065,7 @@ func (d *Document) createTOCEntryWithFieldsStyled(entry TOCEntry, config *TOCCon
 				Left: leftIndent,
 			},
 			Spacing: &Spacing{
-				Before: "60",  // Small space before each entry
-				After:  "60",  // Small space after each entry
-				Line:   "276", // 1.15 line spacing
+				Line: lineSpacingStr, // Use configured line spacing
 			},
 		},
 		Runs: []Run{},

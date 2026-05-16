@@ -19,6 +19,10 @@ type LOTConfig struct {
 	FontFamily     string // Font family (empty for default)
 	FontSize       int    // Font size in points (0 for default)
 	TitleFontSize  int    // Title font size in points (0 for default)
+	TitleColor     string // Title color (hex, e.g., "2B7132"), empty for default
+	TitleBold      bool   // Whether title is bold, default true
+	TabPosition    int    // Right-aligned tab position (twips), 0 for default (8640)
+	LineSpacing    int    // Line spacing (e.g., 240=single, 360=1.5, 480=double), 0 for default
 }
 
 // LOTEntry represents an entry in the List of Tables/Figures
@@ -50,6 +54,10 @@ func DefaultLOTConfig() *LOTConfig {
 		FontFamily:     "",
 		FontSize:       0,
 		TitleFontSize:  0,
+		TitleColor:     "",   // Default (dark blue)
+		TitleBold:      true, // Bold title by default
+		TabPosition:    0,    // Default (8640 twips)
+		LineSpacing:    0,    // Default (276 = 1.15 line spacing)
 	}
 }
 
@@ -66,6 +74,10 @@ func DefaultLOFConfig() *LOTConfig {
 		FontFamily:     "",
 		FontSize:       0,
 		TitleFontSize:  0,
+		TitleColor:     "",   // Default (dark blue)
+		TitleBold:      true, // Bold title by default
+		TabPosition:    0,    // Default (8640 twips)
+		LineSpacing:    0,    // Default (276 = 1.15 line spacing)
 	}
 }
 
@@ -372,6 +384,26 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 	}
 	titleFontSizeVal := fmt.Sprintf("%d", titleFontSize*2)
 
+	// Determine title color (default to dark blue if not specified)
+	titleColor := config.TitleColor
+	if titleColor == "" {
+		titleColor = "2F5496" // Default dark blue
+	}
+
+	// Determine tab position (default to 8640 twips if not specified)
+	tabPosition := config.TabPosition
+	if tabPosition <= 0 {
+		tabPosition = 8640 // Default tab position
+	}
+	tabPosStr := fmt.Sprintf("%d", tabPosition)
+
+	// Determine line spacing (default to 276 = 1.15 line spacing if not specified)
+	lineSpacing := config.LineSpacing
+	if lineSpacing <= 0 {
+		lineSpacing = 276 // Default 1.15 line spacing
+	}
+	lineSpacingStr := fmt.Sprintf("%d", lineSpacing)
+
 	// Create SDT container for the list
 	lotSDT := &SDT{
 		Properties: &SDTProperties{
@@ -390,6 +422,7 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 			RunPr: &RunProperties{
 				FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
 				Bold:       &Bold{},
+				Color:      &Color{Val: titleColor},
 				FontSize:   &FontSize{Val: titleFontSizeVal},
 			},
 		},
@@ -398,24 +431,30 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 		},
 	}
 
+	// Build title run properties
+	titleRunProps := &RunProperties{
+		FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+		FontSize:   &FontSize{Val: titleFontSizeVal},
+		Color:      &Color{Val: titleColor},
+	}
+	if config.TitleBold {
+		titleRunProps.Bold = &Bold{}
+	}
+
 	// Add title paragraph
 	titlePara := &Paragraph{
 		Properties: &ParagraphProperties{
 			Spacing: &Spacing{
 				Before: "0",
-				After:  "200",
-				Line:   "276",
+				After:  "340", // Space after title (matches reference: 340 twips)
+				Line:   "240", // Single line spacing for title
 			},
 			Justification: &Justification{Val: "left"},
 		},
 		Runs: []Run{
 			{
-				Text: Text{Content: config.Title},
-				Properties: &RunProperties{
-					FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
-					FontSize:   &FontSize{Val: titleFontSizeVal},
-					Bold:       &Bold{},
-				},
+				Text:       Text{Content: config.Title},
+				Properties: titleRunProps,
 			},
 		},
 	}
@@ -425,14 +464,18 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 	// Create the TOC field paragraph with \c switch for captions
 	tocFieldPara := &Paragraph{
 		Properties: &ParagraphProperties{
+			ParagraphStyle: &ParagraphStyle{Val: "TableofFigures"},
 			Tabs: &Tabs{
 				Tabs: []TabDef{
 					{
 						Val:    "right",
 						Leader: "dot",
-						Pos:    "8640",
+						Pos:    tabPosStr,
 					},
 				},
+			},
+			Spacing: &Spacing{
+				Line: lineSpacingStr,
 			},
 		},
 		Runs: []Run{},
@@ -482,7 +525,7 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 
 	// Add entries (these are placeholders - Word will regenerate them)
 	for _, entry := range entries {
-		entryPara := d.createLOTEntry(entry, config, fontFamily, fontSizeVal)
+		entryPara := d.createLOTEntry(entry, config, fontFamily, fontSizeVal, tabPosStr, lineSpacingStr)
 		lotSDT.Content.Elements = append(lotSDT.Content.Elements, entryPara)
 	}
 
@@ -508,7 +551,7 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 }
 
 // createLOTEntry creates a single entry paragraph for the LOT/LOF
-func (d *Document) createLOTEntry(entry LOTEntry, config *LOTConfig, fontFamily string, fontSizeVal string) *Paragraph {
+func (d *Document) createLOTEntry(entry LOTEntry, config *LOTConfig, fontFamily string, fontSizeVal string, tabPosStr string, lineSpacingStr string) *Paragraph {
 	para := &Paragraph{
 		Properties: &ParagraphProperties{
 			ParagraphStyle: &ParagraphStyle{Val: "TableofFigures"},
@@ -517,14 +560,12 @@ func (d *Document) createLOTEntry(entry LOTEntry, config *LOTConfig, fontFamily 
 					{
 						Val:    "right",
 						Leader: "dot",
-						Pos:    "8640",
+						Pos:    tabPosStr,
 					},
 				},
 			},
 			Spacing: &Spacing{
-				Before: "60",
-				After:  "60",
-				Line:   "276",
+				Line: lineSpacingStr, // Use configured line spacing
 			},
 		},
 		Runs: []Run{},
