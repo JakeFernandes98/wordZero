@@ -821,3 +821,332 @@ func (d *Document) SetUpdateFieldsOnOpen(enabled bool) error {
 
 	return d.saveSettings(settings)
 }
+
+// MergeFootnotesFrom merges footnotes and endnotes from another document into this document.
+// This preserves the raw XML content from the source document, which is important when
+// merging documents that contain footnotes with complex formatting, hyperlinks, etc.
+// The function handles ID conflicts by keeping the source footnotes (since they are
+// referenced by the content being merged).
+func (d *Document) MergeFootnotesFrom(source *Document) {
+	if source == nil || source.parts == nil {
+		return
+	}
+
+	// Merge footnotes.xml
+	sourceFootnotes, hasSourceFootnotes := source.parts["word/footnotes.xml"]
+	if hasSourceFootnotes && len(sourceFootnotes) > 0 {
+		destFootnotes, hasDestFootnotes := d.parts["word/footnotes.xml"]
+
+		if !hasDestFootnotes || len(destFootnotes) == 0 {
+			// Destination has no footnotes, just copy source
+			d.parts["word/footnotes.xml"] = make([]byte, len(sourceFootnotes))
+			copy(d.parts["word/footnotes.xml"], sourceFootnotes)
+			fmt.Printf("[Document.MergeFootnotesFrom] Copied footnotes.xml from source (no existing footnotes)\n")
+
+			// Ensure footnotes relationship exists
+			d.ensureFootnotesRelationship()
+		} else {
+			// Both have footnotes - merge them by extracting footnote elements
+			merged := mergeFootnotesXML(string(destFootnotes), string(sourceFootnotes))
+			d.parts["word/footnotes.xml"] = []byte(merged)
+			fmt.Printf("[Document.MergeFootnotesFrom] Merged footnotes.xml from source\n")
+		}
+	}
+
+	// Merge endnotes.xml
+	sourceEndnotes, hasSourceEndnotes := source.parts["word/endnotes.xml"]
+	if hasSourceEndnotes && len(sourceEndnotes) > 0 {
+		destEndnotes, hasDestEndnotes := d.parts["word/endnotes.xml"]
+
+		if !hasDestEndnotes || len(destEndnotes) == 0 {
+			// Destination has no endnotes, just copy source
+			d.parts["word/endnotes.xml"] = make([]byte, len(sourceEndnotes))
+			copy(d.parts["word/endnotes.xml"], sourceEndnotes)
+			fmt.Printf("[Document.MergeFootnotesFrom] Copied endnotes.xml from source (no existing endnotes)\n")
+
+			// Ensure endnotes relationship exists
+			d.ensureEndnotesRelationship()
+		} else {
+			// Both have endnotes - merge them
+			merged := mergeEndnotesXML(string(destEndnotes), string(sourceEndnotes))
+			d.parts["word/endnotes.xml"] = []byte(merged)
+			fmt.Printf("[Document.MergeFootnotesFrom] Merged endnotes.xml from source\n")
+		}
+	}
+
+	// Also merge footnotes.xml.rels if present (for hyperlinks in footnotes)
+	sourceFootnotesRels, hasSourceFootnotesRels := source.parts["word/_rels/footnotes.xml.rels"]
+	if hasSourceFootnotesRels && len(sourceFootnotesRels) > 0 {
+		destFootnotesRels, hasDestFootnotesRels := d.parts["word/_rels/footnotes.xml.rels"]
+
+		if !hasDestFootnotesRels || len(destFootnotesRels) == 0 {
+			d.parts["word/_rels/footnotes.xml.rels"] = make([]byte, len(sourceFootnotesRels))
+			copy(d.parts["word/_rels/footnotes.xml.rels"], sourceFootnotesRels)
+			fmt.Printf("[Document.MergeFootnotesFrom] Copied footnotes.xml.rels from source\n")
+		} else {
+			// Merge relationships
+			merged := mergeRelationshipsXML(string(destFootnotesRels), string(sourceFootnotesRels))
+			d.parts["word/_rels/footnotes.xml.rels"] = []byte(merged)
+			fmt.Printf("[Document.MergeFootnotesFrom] Merged footnotes.xml.rels from source\n")
+		}
+	}
+}
+
+// ensureFootnotesRelationship ensures the document has a relationship to footnotes.xml
+func (d *Document) ensureFootnotesRelationship() {
+	if d.documentRelationships == nil {
+		return
+	}
+
+	// Check if relationship already exists
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Type == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" {
+			return // Already exists
+		}
+	}
+
+	// Add the relationship
+	d.addFootnoteRelationship()
+}
+
+// ensureEndnotesRelationship ensures the document has a relationship to endnotes.xml
+func (d *Document) ensureEndnotesRelationship() {
+	if d.documentRelationships == nil {
+		return
+	}
+
+	// Check if relationship already exists
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Type == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes" {
+			return // Already exists
+		}
+	}
+
+	// Add the relationship
+	d.addEndnoteRelationship()
+}
+
+// mergeFootnotesXML merges two footnotes.xml contents, keeping all unique footnotes
+// This uses string manipulation to preserve the original XML formatting and namespaces
+func mergeFootnotesXML(dest, source string) string {
+	// Extract individual footnote elements from source (excluding separators which have type attribute)
+	// We want to find <w:footnote w:id="N"> elements where N >= 1
+	sourceFootnotes := extractFootnoteElements(source)
+
+	if len(sourceFootnotes) == 0 {
+		return dest // No footnotes to merge
+	}
+
+	// Find the closing </w:footnotes> tag in destination
+	closingTag := "</w:footnotes>"
+	closingIdx := findLastIndex(dest, closingTag)
+	if closingIdx == -1 {
+		return dest // Invalid XML, return as-is
+	}
+
+	// Insert source footnotes before the closing tag
+	result := dest[:closingIdx]
+	for _, fn := range sourceFootnotes {
+		result += fn
+	}
+	result += dest[closingIdx:]
+
+	return result
+}
+
+// mergeEndnotesXML merges two endnotes.xml contents
+func mergeEndnotesXML(dest, source string) string {
+	sourceEndnotes := extractEndnoteElements(source)
+
+	if len(sourceEndnotes) == 0 {
+		return dest
+	}
+
+	closingTag := "</w:endnotes>"
+	closingIdx := findLastIndex(dest, closingTag)
+	if closingIdx == -1 {
+		return dest
+	}
+
+	result := dest[:closingIdx]
+	for _, en := range sourceEndnotes {
+		result += en
+	}
+	result += dest[closingIdx:]
+
+	return result
+}
+
+// mergeRelationshipsXML merges two .rels XML files
+func mergeRelationshipsXML(dest, source string) string {
+	sourceRels := extractRelationshipElements(source)
+
+	if len(sourceRels) == 0 {
+		return dest
+	}
+
+	closingTag := "</Relationships>"
+	closingIdx := findLastIndex(dest, closingTag)
+	if closingIdx == -1 {
+		return dest
+	}
+
+	result := dest[:closingIdx]
+	for _, rel := range sourceRels {
+		result += rel
+	}
+	result += dest[closingIdx:]
+
+	return result
+}
+
+// extractFootnoteElements extracts <w:footnote> elements with positive IDs (actual footnotes, not separators)
+func extractFootnoteElements(xml string) []string {
+	var results []string
+	searchStart := 0
+
+	for {
+		// Find next <w:footnote
+		startTag := "<w:footnote "
+		startIdx := findIndex(xml[searchStart:], startTag)
+		if startIdx == -1 {
+			break
+		}
+		startIdx += searchStart
+
+		// Check if this is a separator (has w:type attribute) or actual footnote
+		// Separators have w:type="separator" or w:type="continuationSeparator"
+		// We want footnotes with w:id="1" or higher (no type attribute, or type is not separator)
+
+		// Find the end of this footnote element
+		endTag := "</w:footnote>"
+		endIdx := findIndex(xml[startIdx:], endTag)
+		if endIdx == -1 {
+			break
+		}
+		endIdx += startIdx + len(endTag)
+
+		element := xml[startIdx:endIdx]
+
+		// Check if this is a real footnote (not a separator)
+		// Separators have w:type="separator" or w:type="continuationSeparator"
+		if !containsString(element, `w:type="separator"`) && !containsString(element, `w:type="continuationSeparator"`) {
+			// Also verify it has a positive ID
+			if containsString(element, `w:id="`) {
+				// Extract the ID to check if it's positive
+				idStart := findIndex(element, `w:id="`) + 6
+				idEnd := findIndex(element[idStart:], `"`)
+				if idEnd > 0 {
+					idStr := element[idStart : idStart+idEnd]
+					if id, err := strconv.Atoi(idStr); err == nil && id > 0 {
+						results = append(results, element)
+					}
+				}
+			}
+		}
+
+		searchStart = endIdx
+	}
+
+	return results
+}
+
+// extractEndnoteElements extracts <w:endnote> elements with positive IDs
+func extractEndnoteElements(xml string) []string {
+	var results []string
+	searchStart := 0
+
+	for {
+		startTag := "<w:endnote "
+		startIdx := findIndex(xml[searchStart:], startTag)
+		if startIdx == -1 {
+			break
+		}
+		startIdx += searchStart
+
+		endTag := "</w:endnote>"
+		endIdx := findIndex(xml[startIdx:], endTag)
+		if endIdx == -1 {
+			break
+		}
+		endIdx += startIdx + len(endTag)
+
+		element := xml[startIdx:endIdx]
+
+		if !containsString(element, `w:type="separator"`) && !containsString(element, `w:type="continuationSeparator"`) {
+			if containsString(element, `w:id="`) {
+				idStart := findIndex(element, `w:id="`) + 6
+				idEnd := findIndex(element[idStart:], `"`)
+				if idEnd > 0 {
+					idStr := element[idStart : idStart+idEnd]
+					if id, err := strconv.Atoi(idStr); err == nil && id > 0 {
+						results = append(results, element)
+					}
+				}
+			}
+		}
+
+		searchStart = endIdx
+	}
+
+	return results
+}
+
+// extractRelationshipElements extracts <Relationship> elements from a .rels file
+func extractRelationshipElements(xml string) []string {
+	var results []string
+	searchStart := 0
+
+	for {
+		// Handle both self-closing and regular tags
+		startTag := "<Relationship "
+		startIdx := findIndex(xml[searchStart:], startTag)
+		if startIdx == -1 {
+			break
+		}
+		startIdx += searchStart
+
+		// Check for self-closing tag first
+		selfCloseIdx := findIndex(xml[startIdx:], "/>")
+		endTagIdx := findIndex(xml[startIdx:], "</Relationship>")
+
+		var endIdx int
+		if selfCloseIdx != -1 && (endTagIdx == -1 || selfCloseIdx < endTagIdx) {
+			endIdx = startIdx + selfCloseIdx + 2
+		} else if endTagIdx != -1 {
+			endIdx = startIdx + endTagIdx + len("</Relationship>")
+		} else {
+			break
+		}
+
+		element := xml[startIdx:endIdx]
+		results = append(results, element)
+
+		searchStart = endIdx
+	}
+
+	return results
+}
+
+// Helper functions for string operations (avoiding strings package dependency issues)
+func findIndex(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+func findLastIndex(s, substr string) int {
+	for i := len(s) - len(substr); i >= 0; i-- {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+func containsString(s, substr string) bool {
+	return findIndex(s, substr) != -1
+}
