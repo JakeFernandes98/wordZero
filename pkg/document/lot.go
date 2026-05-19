@@ -4,25 +4,28 @@ package document
 import (
 	"encoding/xml"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
 // LOTConfig configuration for List of Tables/Figures
 type LOTConfig struct {
-	Title          string // Title for the list (e.g., "List of Tables", "Lista de Tablas")
-	SeqIdentifier  string // SEQ field identifier (e.g., "Table", "Figure")
-	ShowPageNum    bool   // Whether to show page numbers
-	RightAlign     bool   // Whether to right-align page numbers
-	UseHyperlink   bool   // Whether to use hyperlinks
-	DotLeader      bool   // Whether to use dot leaders
-	InsertPosition int    // Insert position (-1 for auto)
-	FontFamily     string // Font family (empty for default)
-	FontSize       int    // Font size in points (0 for default)
-	TitleFontSize  int    // Title font size in points (0 for default)
-	TitleColor     string // Title color (hex, e.g., "2B7132"), empty for default
-	TitleBold      bool   // Whether title is bold, default true
-	TabPosition    int    // Right-aligned tab position (twips), 0 for default (8640)
-	LineSpacing    int    // Line spacing (e.g., 240=single, 360=1.5, 480=double), 0 for default
+	Title           string // Title for the list (e.g., "List of Tables", "Lista de Tablas")
+	SeqIdentifier   string // SEQ field identifier (e.g., "Table", "Figure")
+	ShowPageNum     bool   // Whether to show page numbers
+	RightAlign      bool   // Whether to right-align page numbers
+	UseHyperlink    bool   // Whether to use hyperlinks
+	DotLeader       bool   // Whether to use dot leaders
+	InsertPosition  int    // Insert position (-1 for auto)
+	FontFamily      string // Font family (empty for default)
+	TitleFontFamily string // Title font family (empty for same as FontFamily)
+	FontSize        int    // Font size in points (0 for default)
+	TitleFontSize   int    // Title font size in points (0 for default)
+	TitleColor      string // Title color (hex, e.g., "2B7132"), empty for default
+	TitleBold       bool   // Whether title is bold, default true
+	TabPosition     int    // Right-aligned tab position (twips), 0 for default (8640)
+	LineSpacing     int    // Line spacing (e.g., 240=single, 360=1.5, 480=double), 0 for default
+	SpacingAfter    int    // Spacing after title (twips), 0 for default (340)
 }
 
 // LOTEntry represents an entry in the List of Tables/Figures
@@ -44,40 +47,67 @@ type SEQField struct {
 // DefaultLOTConfig returns default configuration for List of Tables
 func DefaultLOTConfig() *LOTConfig {
 	return &LOTConfig{
-		Title:          "List of Tables",
-		SeqIdentifier:  "Table",
-		ShowPageNum:    true,
-		RightAlign:     true,
-		UseHyperlink:   true,
-		DotLeader:      true,
-		InsertPosition: -1,
-		FontFamily:     "",
-		FontSize:       0,
-		TitleFontSize:  0,
-		TitleColor:     "",   // Default (dark blue)
-		TitleBold:      true, // Bold title by default
-		TabPosition:    0,    // Default (8640 twips)
-		LineSpacing:    0,    // Default (276 = 1.15 line spacing)
+		Title:           "List of Tables",
+		SeqIdentifier:   "Table",
+		ShowPageNum:     true,
+		RightAlign:      true,
+		UseHyperlink:    true,
+		DotLeader:       true,
+		InsertPosition:  -1,
+		FontFamily:      "",
+		TitleFontFamily: "",
+		FontSize:        0,
+		TitleFontSize:   0,
+		TitleColor:      "",   // Default (dark blue)
+		TitleBold:       true, // Bold title by default
+		TabPosition:     0,    // Default (8640 twips)
+		LineSpacing:     0,    // Default (276 = 1.15 line spacing)
+		SpacingAfter:    0,    // Default (340 twips)
 	}
 }
 
 // DefaultLOFConfig returns default configuration for List of Figures
 func DefaultLOFConfig() *LOTConfig {
 	return &LOTConfig{
-		Title:          "List of Figures",
-		SeqIdentifier:  "Figure",
-		ShowPageNum:    true,
-		RightAlign:     true,
-		UseHyperlink:   true,
-		DotLeader:      true,
-		InsertPosition: -1,
-		FontFamily:     "",
-		FontSize:       0,
-		TitleFontSize:  0,
-		TitleColor:     "",   // Default (dark blue)
-		TitleBold:      true, // Bold title by default
-		TabPosition:    0,    // Default (8640 twips)
-		LineSpacing:    0,    // Default (276 = 1.15 line spacing)
+		Title:           "List of Figures",
+		SeqIdentifier:   "Figure",
+		ShowPageNum:     true,
+		RightAlign:      true,
+		UseHyperlink:    true,
+		DotLeader:       true,
+		InsertPosition:  -1,
+		FontFamily:      "",
+		TitleFontFamily: "",
+		FontSize:        0,
+		TitleFontSize:   0,
+		TitleColor:      "",   // Default (dark blue)
+		TitleBold:       true, // Bold title by default
+		TabPosition:     0,    // Default (8640 twips)
+		LineSpacing:     0,    // Default (276 = 1.15 line spacing)
+		SpacingAfter:    0,    // Default (340 twips)
+	}
+}
+
+// GEAReportLOTConfig returns LOT configuration matching GEA report styling
+// Uses Barlow SemiBold for title, green color #2B7132, 20pt title, 11pt entries
+func GEAReportLOTConfig(title string, seqIdentifier string) *LOTConfig {
+	return &LOTConfig{
+		Title:           title,
+		SeqIdentifier:   seqIdentifier,
+		ShowPageNum:     true,
+		RightAlign:      true,
+		UseHyperlink:    true,
+		DotLeader:       true,
+		InsertPosition:  -1,
+		FontFamily:      "Calibri",         // Entry font
+		TitleFontFamily: "Barlow SemiBold", // Title font
+		FontSize:        11,                // 11pt for entries
+		TitleFontSize:   20,                // 20pt for title (40 half-points)
+		TitleColor:      "2B7132",          // Green color
+		TitleBold:       true,
+		TabPosition:     9629,              // Right tab position
+		LineSpacing:     276,               // 1.15 line spacing
+		SpacingAfter:    340,               // Space after title
 	}
 }
 
@@ -372,6 +402,12 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 		fontFamily = "Calibri"
 	}
 
+	// Title font family (can be different from entry font)
+	titleFontFamily := config.TitleFontFamily
+	if titleFontFamily == "" {
+		titleFontFamily = fontFamily
+	}
+
 	fontSize := config.FontSize
 	if fontSize <= 0 {
 		fontSize = 11
@@ -404,6 +440,13 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 	}
 	lineSpacingStr := fmt.Sprintf("%d", lineSpacing)
 
+	// Determine spacing after title (default to 340 twips)
+	spacingAfter := config.SpacingAfter
+	if spacingAfter <= 0 {
+		spacingAfter = 340
+	}
+	spacingAfterStr := fmt.Sprintf("%d", spacingAfter)
+
 	// Create SDT container for the list
 	lotSDT := &SDT{
 		Properties: &SDTProperties{
@@ -420,7 +463,7 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 		},
 		EndPr: &SDTEndPr{
 			RunPr: &RunProperties{
-				FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+				FontFamily: &FontFamily{ASCII: titleFontFamily, HAnsi: titleFontFamily, EastAsia: titleFontFamily, CS: titleFontFamily},
 				Bold:       &Bold{},
 				Color:      &Color{Val: titleColor},
 				FontSize:   &FontSize{Val: titleFontSizeVal},
@@ -433,7 +476,7 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 
 	// Build title run properties
 	titleRunProps := &RunProperties{
-		FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+		FontFamily: &FontFamily{ASCII: titleFontFamily, HAnsi: titleFontFamily, EastAsia: titleFontFamily, CS: titleFontFamily},
 		FontSize:   &FontSize{Val: titleFontSizeVal},
 		Color:      &Color{Val: titleColor},
 	}
@@ -446,8 +489,8 @@ func (d *Document) createLOTElements(config *LOTConfig, entries []LOTEntry) []in
 		Properties: &ParagraphProperties{
 			Spacing: &Spacing{
 				Before: "0",
-				After:  "340", // Space after title (matches reference: 340 twips)
-				Line:   "240", // Single line spacing for title
+				After:  spacingAfterStr, // Space after title
+				Line:   "240",           // Single line spacing for title
 			},
 			Justification: &Justification{Val: "left"},
 		},
@@ -801,4 +844,50 @@ func GetLOFTitleForLanguage(lang string) string {
 	default:
 		return "List of Figures"
 	}
+}
+
+// EnsureTableOfFiguresStyle ensures the TableofFigures style exists with proper formatting
+// This style is used by Word when updating the LOT/LOF fields
+func (d *Document) EnsureTableOfFiguresStyle(fontFamily string, fontSize int, lineSpacing int, tabPosition int) error {
+	if fontFamily == "" {
+		fontFamily = "Calibri"
+	}
+	if fontSize <= 0 {
+		fontSize = 11
+	}
+	if lineSpacing <= 0 {
+		lineSpacing = 276 // 1.15 line spacing
+	}
+	if tabPosition <= 0 {
+		tabPosition = 9629 // Default tab position
+	}
+
+	fontSizeVal := fmt.Sprintf("%d", fontSize*2) // Word uses half-points
+	lineSpacingVal := fmt.Sprintf("%d", lineSpacing)
+	tabPosVal := fmt.Sprintf("%d", tabPosition)
+
+	// Get existing styles.xml
+	stylesData, ok := d.parts["word/styles.xml"]
+	if !ok {
+		return fmt.Errorf("styles.xml not found")
+	}
+
+	stylesStr := string(stylesData)
+
+	// Define the new TableofFigures style with proper formatting
+	newStyle := fmt.Sprintf(`<w:style w:type="paragraph" w:styleId="TableofFigures"><w:name w:val="table of figures"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="%s"/></w:tabs><w:spacing w:after="0" w:line="%s" w:lineRule="auto"/></w:pPr><w:rPr><w:rFonts w:ascii="%s" w:hAnsi="%s" w:eastAsia="%s" w:cs="%s"/><w:sz w:val="%s"/><w:szCs w:val="%s"/></w:rPr></w:style>`,
+		tabPosVal, lineSpacingVal, fontFamily, fontFamily, fontFamily, fontFamily, fontSizeVal, fontSizeVal)
+
+	// Check if TableofFigures style already exists
+	if strings.Contains(stylesStr, `w:styleId="TableofFigures"`) {
+		// Replace existing style
+		re := regexp.MustCompile(`<w:style[^>]*w:styleId="TableofFigures"[^>]*>.*?</w:style>`)
+		stylesStr = re.ReplaceAllString(stylesStr, newStyle)
+	} else {
+		// Add new style before closing </w:styles> tag
+		stylesStr = strings.Replace(stylesStr, "</w:styles>", newStyle+"</w:styles>", 1)
+	}
+
+	d.parts["word/styles.xml"] = []byte(stylesStr)
+	return nil
 }

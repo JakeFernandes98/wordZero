@@ -9,21 +9,23 @@ import (
 
 // TOCConfig 目录配置
 type TOCConfig struct {
-	Title          string  // 目录标题，默认为"目录"
-	MaxLevel       int     // 最大级别，默认为3（显示1-3级标题）
-	ShowPageNum    bool    // 是否显示页码，默认为true
-	RightAlign     bool    // 页码是否右对齐，默认为true
-	UseHyperlink   bool    // 是否使用超链接，默认为true
-	DotLeader      bool    // 是否使用点状引导线，默认为true
-	InsertPosition int     // 插入位置（元素索引），-1表示自动（开头或现有TOC位置）
-	FontFamily     string  // 字体名称（如 "Open Sans", "Arial"），空则使用默认
-	FontSize       int     // 字体大小（磅），0则使用默认
-	TitleFontSize  int     // 标题字体大小（磅），0则使用默认
-	IndentPerLevel float64 // 每级缩进量（磅），0则使用默认（720 twips = 0.5 inch）
-	TitleColor     string  // 标题颜色（十六进制，如 "2B7132"），空则使用默认
-	TitleBold      bool    // 标题是否加粗，默认为true
-	TabPosition    int     // 右对齐制表位位置（twips），0则使用默认（8640）
-	LineSpacing    int     // 行间距（如 240=单倍, 360=1.5倍, 480=双倍），0则使用默认
+	Title           string  // 目录标题，默认为"目录"
+	MaxLevel        int     // 最大级别，默认为3（显示1-3级标题）
+	ShowPageNum     bool    // 是否显示页码，默认为true
+	RightAlign      bool    // 页码是否右对齐，默认为true
+	UseHyperlink    bool    // 是否使用超链接，默认为true
+	DotLeader       bool    // 是否使用点状引导线，默认为true
+	InsertPosition  int     // 插入位置（元素索引），-1表示自动（开头或现有TOC位置）
+	FontFamily      string  // 字体名称（如 "Open Sans", "Arial"），空则使用默认
+	TitleFontFamily string  // 标题字体名称（如 "Barlow SemiBold"），空则使用FontFamily
+	FontSize        int     // 字体大小（磅），0则使用默认
+	TitleFontSize   int     // 标题字体大小（磅），0则使用默认
+	IndentPerLevel  float64 // 每级缩进量（磅），0则使用默认（720 twips = 0.5 inch）
+	TitleColor      string  // 标题颜色（十六进制，如 "2B7132"），空则使用默认
+	TitleBold       bool    // 标题是否加粗，默认为true
+	TabPosition     int     // 右对齐制表位位置（twips），0则使用默认（8640）
+	LineSpacing     int     // 行间距（如 240=单倍, 360=1.5倍, 480=双倍），0则使用默认
+	SpacingAfter    int     // 标题后间距（twips），0则使用默认（340）
 }
 
 // TOCEntry 目录条目
@@ -121,21 +123,47 @@ func (b *BookmarkStart) ElementType() string {
 // DefaultTOCConfig 返回默认目录配置
 func DefaultTOCConfig() *TOCConfig {
 	return &TOCConfig{
-		Title:          "目录",
-		MaxLevel:       3,
-		ShowPageNum:    true,
-		RightAlign:     true,
-		UseHyperlink:   true,
-		DotLeader:      true,
-		InsertPosition: -1,     // Auto: beginning or existing TOC position
-		FontFamily:     "",     // Use default (Calibri)
-		FontSize:       0,      // Use default (11pt)
-		TitleFontSize:  0,      // Use default (16pt)
-		IndentPerLevel: 0,      // Use default (720 twips = 0.5 inch per level)
-		TitleColor:     "",     // Use default (dark blue)
-		TitleBold:      true,   // Bold title by default
-		TabPosition:    0,      // Use default (8640 twips)
-		LineSpacing:    0,      // Use default (276 = 1.15 line spacing)
+		Title:           "目录",
+		MaxLevel:        3,
+		ShowPageNum:     true,
+		RightAlign:      true,
+		UseHyperlink:    true,
+		DotLeader:       true,
+		InsertPosition:  -1,     // Auto: beginning or existing TOC position
+		FontFamily:      "",     // Use default (Calibri)
+		TitleFontFamily: "",     // Use default (same as FontFamily)
+		FontSize:        0,      // Use default (11pt)
+		TitleFontSize:   0,      // Use default (16pt)
+		IndentPerLevel:  0,      // Use default (720 twips = 0.5 inch per level)
+		TitleColor:      "",     // Use default (dark blue)
+		TitleBold:       true,   // Bold title by default
+		TabPosition:     0,      // Use default (8640 twips)
+		LineSpacing:     0,      // Use default (276 = 1.15 line spacing)
+		SpacingAfter:    0,      // Use default (340 twips)
+	}
+}
+
+// GEAReportTOCConfig returns TOC configuration matching GEA report styling
+// Uses Barlow SemiBold for title, green color #2B7132, 20pt title, 11pt entries
+func GEAReportTOCConfig(title string) *TOCConfig {
+	return &TOCConfig{
+		Title:           title,
+		MaxLevel:        3,
+		ShowPageNum:     true,
+		RightAlign:      true,
+		UseHyperlink:    true,
+		DotLeader:       true,
+		InsertPosition:  -1,
+		FontFamily:      "Calibri",        // Entry font
+		TitleFontFamily: "Barlow SemiBold", // Title font
+		FontSize:        11,               // 11pt for entries
+		TitleFontSize:   20,               // 20pt for title (40 half-points)
+		IndentPerLevel:  0,                // No indent for entries
+		TitleColor:      "2B7132",         // Green color
+		TitleBold:       true,
+		TabPosition:     9629,             // Right tab position
+		LineSpacing:     360,              // 1.5 line spacing
+		SpacingAfter:    340,              // Space after title
 	}
 }
 
@@ -720,6 +748,12 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 		fontFamily = "Calibri"
 	}
 	
+	// Title font family (can be different from entry font)
+	titleFontFamily := config.TitleFontFamily
+	if titleFontFamily == "" {
+		titleFontFamily = fontFamily
+	}
+	
 	fontSize := config.FontSize
 	if fontSize <= 0 {
 		fontSize = 11 // Default 11pt
@@ -757,6 +791,13 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 	}
 	lineSpacingStr := fmt.Sprintf("%d", lineSpacing)
 
+	// Determine spacing after title (default to 340 twips)
+	spacingAfter := config.SpacingAfter
+	if spacingAfter <= 0 {
+		spacingAfter = 340
+	}
+	spacingAfterStr := fmt.Sprintf("%d", spacingAfter)
+
 	// 创建目录SDT容器
 	tocSDT := &SDT{
 		Properties: &SDTProperties{
@@ -773,7 +814,7 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 		},
 		EndPr: &SDTEndPr{
 			RunPr: &RunProperties{
-				FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+				FontFamily: &FontFamily{ASCII: titleFontFamily, HAnsi: titleFontFamily, EastAsia: titleFontFamily, CS: titleFontFamily},
 				Bold:       &Bold{},
 				Color:      &Color{Val: titleColor},
 				FontSize:   &FontSize{Val: titleFontSizeVal},
@@ -786,7 +827,7 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 
 	// Build title run properties
 	titleRunProps := &RunProperties{
-		FontFamily: &FontFamily{ASCII: fontFamily, HAnsi: fontFamily, EastAsia: fontFamily, CS: fontFamily},
+		FontFamily: &FontFamily{ASCII: titleFontFamily, HAnsi: titleFontFamily, EastAsia: titleFontFamily, CS: titleFontFamily},
 		FontSize:   &FontSize{Val: titleFontSizeVal},
 		Color:      &Color{Val: titleColor},
 	}
@@ -799,8 +840,8 @@ func (d *Document) createWordFieldTOC(config *TOCConfig, entries []TOCEntry) []i
 		Properties: &ParagraphProperties{
 			Spacing: &Spacing{
 				Before: "0",
-				After:  "340", // Space after title (matches reference: 340 twips)
-				Line:   "240", // Single line spacing for title
+				After:  spacingAfterStr, // Space after title
+				Line:   "240",           // Single line spacing for title
 			},
 			Justification: &Justification{Val: "left"}, // Left align title
 			Indentation: &Indentation{

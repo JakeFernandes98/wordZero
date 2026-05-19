@@ -1409,6 +1409,73 @@ func createHeaderWithImageXML(imageRId string, widthEMU, heightEMU int64, imageN
 </w:hdr>`, widthEMU, heightEMU, imageName, imageRId, widthEMU, heightEMU)
 }
 
+// CreateGEAReportHeader creates a header matching the GEA report style:
+// Left side: Version text and date on two lines
+// Right side: Organization logo (floating)
+// Font: Barlow, 10pt, black
+func (d *Document) CreateGEAReportHeader(headerType HeaderFooterType, versionText string, dateText string, imageData []byte, logoWidthMM, logoHeightMM float64) error {
+	fileName := getFileNameForType("header", headerType)
+	headerPartName := fmt.Sprintf("word/%s", fileName)
+
+	imageNum := d.getNextImageNumber()
+	imageName := fmt.Sprintf("media/image%d.png", imageNum)
+	imagePartName := "word/" + imageName
+
+	d.parts[imagePartName] = imageData
+	d.addContentType(imagePartName, "image/png")
+
+	headerRelsPath := fmt.Sprintf("word/_rels/%s.rels", fileName)
+	imageRId := "rId1"
+	headerRelsXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="%s"/>
+</Relationships>`, imageRId, imageName)
+	d.parts[headerRelsPath] = []byte(headerRelsXML)
+
+	widthEMU := int64(logoWidthMM * 914400 / 25.4)
+	heightEMU := int64(logoHeightMM * 914400 / 25.4)
+
+	headerXML := createGEAReportHeaderXML(versionText, dateText, imageRId, widthEMU, heightEMU, imageName)
+	d.parts[headerPartName] = []byte(headerXML)
+
+	headerID := fmt.Sprintf("rId%d", len(d.documentRelationships.Relationships)+2)
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Target == fileName {
+			headerID = rel.ID
+			break
+		}
+	}
+
+	exists := false
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Target == fileName {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		relationship := Relationship{
+			ID:     headerID,
+			Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
+			Target: fileName,
+		}
+		d.documentRelationships.Relationships = append(d.documentRelationships.Relationships, relationship)
+	}
+
+	d.addContentType(headerPartName, "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml")
+	d.addHeaderReference(headerType, headerID)
+	return nil
+}
+
+func createGEAReportHeaderXML(versionText, dateText, imageRId string, widthEMU, heightEMU int64, imageName string) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" mc:Ignorable="w14 w15 wp14">
+<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Barlow" w:hAnsi="Barlow"/><w:noProof/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="22"/></w:rPr><w:drawing><wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="251659264" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>4230370</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>-132715</wp:posOffset></wp:positionV><wp:extent cx="%d" cy="%d"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="1" name="Logo"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="1" name="%s"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r><w:r><w:rPr><w:rFonts w:ascii="Barlow" w:hAnsi="Barlow"/><w:noProof/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="22"/></w:rPr><w:t>%s</w:t></w:r></w:p>
+<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Barlow" w:hAnsi="Barlow"/><w:noProof/><w:color w:val="000000"/><w:sz w:val="20"/><w:szCs w:val="22"/></w:rPr><w:t>%s</w:t></w:r></w:p>
+<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:p>
+</w:hdr>`, widthEMU, heightEMU, imageName, imageRId, widthEMU, heightEMU, versionText, dateText)
+}
+
 // CreateEmptyHeaderFooter creates an empty header or footer (useful for first page with no header/footer)
 func (d *Document) CreateEmptyHeaderFooter(isHeader bool, hfType HeaderFooterType) error {
 	var fileName, partName, contentType, relType string
@@ -1488,4 +1555,308 @@ func (d *Document) CreateEmptyHeaderFooter(isHeader bool, hfType HeaderFooterTyp
 	}
 	
 	return nil
+}
+
+// CreateStyledFooter creates a footer with styled text:
+// "Report text [YEAR in green] | [PAGE in green]" right-aligned
+// Uses specified font, with year and page number in green (#2A7032)
+func (d *Document) CreateStyledFooter(footerType HeaderFooterType, reportText string, year int, fontName string, fontSize int) error {
+	fileName := getFileNameForType("footer", footerType)
+	footerPartName := fmt.Sprintf("word/%s", fileName)
+	
+	// Create footer XML with styled content
+	footerXML := createStyledFooterXML(reportText, year, fontName, fontSize)
+	
+	d.parts[footerPartName] = []byte(footerXML)
+	
+	// Generate relationship ID
+	footerID := fmt.Sprintf("rId%d", len(d.documentRelationships.Relationships)+2)
+	
+	// Check if relationship already exists
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Target == fileName {
+			footerID = rel.ID
+			break
+		}
+	}
+	
+	// Add relationship if it doesn't exist
+	exists := false
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Target == fileName {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		relationship := Relationship{
+			ID:     footerID,
+			Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer",
+			Target: fileName,
+		}
+		d.documentRelationships.Relationships = append(d.documentRelationships.Relationships, relationship)
+	}
+	
+	// Add content type
+	d.addContentType(footerPartName, "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
+	
+	// Add footer reference to section properties
+	d.addFooterReference(footerType, footerID)
+	
+	return nil
+}
+
+// createStyledFooterXML creates the XML for a styled footer matching reference document
+func createStyledFooterXML(reportText string, year int, fontName string, fontSize int) string {
+	if fontName == "" {
+		fontName = "Barlow"
+	}
+	if fontSize == 0 {
+		fontSize = 10
+	}
+	fontSizeHalfPt := fontSize * 2 // Word uses half-points
+	greenColor := "2A7032"         // Green color from reference document
+	
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+       xmlns:o="urn:schemas-microsoft-com:office:office"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+       xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+       xmlns:v="urn:schemas-microsoft-com:vml"
+       xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+       xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+       xmlns:w10="urn:schemas-microsoft-com:office:word"
+       xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+       xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+       xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"
+       xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+       xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+       xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
+       xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+       mc:Ignorable="w14 w15 wp14">
+  <w:p>
+    <w:pPr>
+      <w:pStyle w:val="Footer"/>
+      <w:jc w:val="right"/>
+    </w:pPr>
+    <w:r>
+      <w:rPr>
+        <w:rFonts w:ascii="%s" w:hAnsi="%s"/>
+        <w:sz w:val="%d"/>
+        <w:szCs w:val="%d"/>
+      </w:rPr>
+      <w:t xml:space="preserve">%s </w:t>
+    </w:r>
+    <w:r>
+      <w:rPr>
+        <w:rFonts w:ascii="%s" w:hAnsi="%s"/>
+        <w:color w:val="%s"/>
+        <w:sz w:val="%d"/>
+        <w:szCs w:val="%d"/>
+      </w:rPr>
+      <w:t>%d</w:t>
+    </w:r>
+    <w:r>
+      <w:rPr>
+        <w:rFonts w:ascii="%s" w:hAnsi="%s"/>
+        <w:sz w:val="%d"/>
+        <w:szCs w:val="%d"/>
+      </w:rPr>
+      <w:t xml:space="preserve"> | </w:t>
+    </w:r>
+    <w:r>
+      <w:rPr>
+        <w:rFonts w:ascii="%s" w:hAnsi="%s"/>
+        <w:color w:val="%s"/>
+        <w:sz w:val="%d"/>
+        <w:szCs w:val="%d"/>
+      </w:rPr>
+      <w:fldChar w:fldCharType="begin"/>
+    </w:r>
+    <w:r>
+      <w:rPr>
+        <w:rFonts w:ascii="%s" w:hAnsi="%s"/>
+        <w:color w:val="%s"/>
+        <w:sz w:val="%d"/>
+        <w:szCs w:val="%d"/>
+      </w:rPr>
+      <w:instrText xml:space="preserve"> PAGE </w:instrText>
+    </w:r>
+    <w:r>
+      <w:rPr>
+        <w:rFonts w:ascii="%s" w:hAnsi="%s"/>
+        <w:color w:val="%s"/>
+        <w:sz w:val="%d"/>
+        <w:szCs w:val="%d"/>
+      </w:rPr>
+      <w:fldChar w:fldCharType="separate"/>
+    </w:r>
+    <w:r>
+      <w:rPr>
+        <w:rFonts w:ascii="%s" w:hAnsi="%s"/>
+        <w:color w:val="%s"/>
+        <w:sz w:val="%d"/>
+        <w:szCs w:val="%d"/>
+      </w:rPr>
+      <w:t>1</w:t>
+    </w:r>
+    <w:r>
+      <w:rPr>
+        <w:rFonts w:ascii="%s" w:hAnsi="%s"/>
+        <w:color w:val="%s"/>
+        <w:sz w:val="%d"/>
+        <w:szCs w:val="%d"/>
+      </w:rPr>
+      <w:fldChar w:fldCharType="end"/>
+    </w:r>
+  </w:p>
+</w:ftr>`,
+		fontName, fontName, fontSizeHalfPt, fontSizeHalfPt, reportText,
+		fontName, fontName, greenColor, fontSizeHalfPt, fontSizeHalfPt, year,
+		fontName, fontName, fontSizeHalfPt, fontSizeHalfPt,
+		fontName, fontName, greenColor, fontSizeHalfPt, fontSizeHalfPt,
+		fontName, fontName, greenColor, fontSizeHalfPt, fontSizeHalfPt,
+		fontName, fontName, greenColor, fontSizeHalfPt, fontSizeHalfPt,
+		fontName, fontName, greenColor, fontSizeHalfPt, fontSizeHalfPt,
+		fontName, fontName, greenColor, fontSizeHalfPt, fontSizeHalfPt)
+}
+
+// CreateStyledHeaderWithImage creates a header with an image positioned on the right
+// The image is right-aligned in the header
+func (d *Document) CreateStyledHeaderWithImage(headerType HeaderFooterType, imageData []byte, widthMM, heightMM float64) error {
+	fileName := getFileNameForType("header", headerType)
+	headerPartName := fmt.Sprintf("word/%s", fileName)
+	
+	// Add the image to the document
+	imageNum := d.getNextImageNumber()
+	imageName := fmt.Sprintf("media/image%d.png", imageNum)
+	imagePartName := "word/" + imageName
+	
+	// Store the image data
+	d.parts[imagePartName] = imageData
+	
+	// Add image content type
+	d.addContentType(imagePartName, "image/png")
+	
+	// Create header relationship file for the image
+	headerRelsPath := fmt.Sprintf("word/_rels/%s.rels", fileName)
+	imageRId := "rId1"
+	headerRelsXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="%s"/>
+</Relationships>`, imageRId, imageName)
+	d.parts[headerRelsPath] = []byte(headerRelsXML)
+	
+	// Convert mm to EMUs (English Metric Units) - 1 inch = 914400 EMUs, 1 inch = 25.4 mm
+	widthEMU := int64(widthMM * 914400 / 25.4)
+	heightEMU := int64(heightMM * 914400 / 25.4)
+	
+	// Create header XML with the image right-aligned
+	headerXML := createStyledHeaderWithImageXML(imageRId, widthEMU, heightEMU, imageName)
+	d.parts[headerPartName] = []byte(headerXML)
+	
+	// Generate relationship ID for the header
+	headerID := fmt.Sprintf("rId%d", len(d.documentRelationships.Relationships)+2)
+	
+	// Check if relationship already exists
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Target == fileName {
+			headerID = rel.ID
+			break
+		}
+	}
+	
+	// Add relationship if it doesn't exist
+	exists := false
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Target == fileName {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		relationship := Relationship{
+			ID:     headerID,
+			Type:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
+			Target: fileName,
+		}
+		d.documentRelationships.Relationships = append(d.documentRelationships.Relationships, relationship)
+	}
+	
+	// Add content type for header
+	d.addContentType(headerPartName, "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml")
+	
+	// Add header reference to section properties
+	d.addHeaderReference(headerType, headerID)
+	
+	return nil
+}
+
+// createStyledHeaderWithImageXML creates the XML for a header with a right-aligned image
+func createStyledHeaderWithImageXML(imageRId string, widthEMU, heightEMU int64, imageName string) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+       xmlns:o="urn:schemas-microsoft-com:office:office"
+       xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+       xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+       xmlns:v="urn:schemas-microsoft-com:vml"
+       xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+       xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+       xmlns:w10="urn:schemas-microsoft-com:office:word"
+       xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+       xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+       xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"
+       xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+       xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+       xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
+       xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
+       mc:Ignorable="w14 w15 wp14">
+  <w:p>
+    <w:pPr>
+      <w:pStyle w:val="Header"/>
+      <w:jc w:val="right"/>
+    </w:pPr>
+    <w:r>
+      <w:drawing>
+        <wp:inline distT="0" distB="0" distL="0" distR="0">
+          <wp:extent cx="%d" cy="%d"/>
+          <wp:effectExtent l="0" t="0" r="0" b="0"/>
+          <wp:docPr id="1" name="Logo"/>
+          <wp:cNvGraphicFramePr>
+            <a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>
+          </wp:cNvGraphicFramePr>
+          <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+            <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+              <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:nvPicPr>
+                  <pic:cNvPr id="1" name="%s"/>
+                  <pic:cNvPicPr/>
+                </pic:nvPicPr>
+                <pic:blipFill>
+                  <a:blip r:embed="%s"/>
+                  <a:stretch>
+                    <a:fillRect/>
+                  </a:stretch>
+                </pic:blipFill>
+                <pic:spPr>
+                  <a:xfrm>
+                    <a:off x="0" y="0"/>
+                    <a:ext cx="%d" cy="%d"/>
+                  </a:xfrm>
+                  <a:prstGeom prst="rect">
+                    <a:avLst/>
+                  </a:prstGeom>
+                </pic:spPr>
+              </pic:pic>
+            </a:graphicData>
+          </a:graphic>
+        </wp:inline>
+      </w:drawing>
+    </w:r>
+  </w:p>
+</w:hdr>`, widthEMU, heightEMU, imageName, imageRId, widthEMU, heightEMU)
 }
