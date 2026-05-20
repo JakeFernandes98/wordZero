@@ -1005,7 +1005,18 @@ func (d *Document) addHeaderReference(headerType HeaderFooterType, headerID stri
 		ID:   headerID,
 	}
 
-	sectPr.HeaderReferences = append(sectPr.HeaderReferences, headerRef)
+	// Check if a header reference of this type already exists and update it
+	found := false
+	for i, ref := range sectPr.HeaderReferences {
+		if ref.Type == string(headerType) {
+			sectPr.HeaderReferences[i] = headerRef
+			found = true
+			break
+		}
+	}
+	if !found {
+		sectPr.HeaderReferences = append(sectPr.HeaderReferences, headerRef)
+	}
 }
 
 // addFooterReference 添加页脚引用到节属性
