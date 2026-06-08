@@ -1133,6 +1133,26 @@ func (te *TemplateEngine) cloneRun(source *Run) Run {
 		newRun.InstrText = source.InstrText
 	}
 
+	// 复制脚注引用（如果有）
+	if source.FootnoteRef != nil {
+		newRun.FootnoteRef = &FootnoteReference{ID: source.FootnoteRef.ID}
+	}
+
+	// 复制尾注引用（如果有）
+	if source.EndnoteRef != nil {
+		newRun.EndnoteRef = &EndnoteReference{ID: source.EndnoteRef.ID}
+	}
+
+	// 复制Tab（如果有）
+	if source.Tab != nil {
+		newRun.Tab = &Tab{}
+	}
+
+	// 复制Break（如果有）
+	if source.Break != nil {
+		newRun.Break = &Break{Type: source.Break.Type}
+	}
+
 	// 复制原始XML元素（如果有）- 用于保留mc:AlternateContent等复杂内容
 	if len(source.RawElements) > 0 {
 		newRun.RawElements = make([]*RawElement, len(source.RawElements))
@@ -1156,6 +1176,11 @@ func (te *TemplateEngine) cloneRunProperties(source *RunProperties) *RunProperti
 	}
 
 	props := &RunProperties{}
+
+	// 复制字符样式引用
+	if source.RStyle != nil {
+		props.RStyle = &RStyle{Val: source.RStyle.Val}
+	}
 
 	// 复制粗体
 	if source.Bold != nil {
