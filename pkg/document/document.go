@@ -207,15 +207,17 @@ type OutlineLevel struct {
 
 // Run 表示一段文本
 type Run struct {
-	XMLName     xml.Name        `xml:"w:r"`
-	Properties  *RunProperties  `xml:"w:rPr,omitempty"`
-	Text        Text            `xml:"w:t,omitempty"`
-	Tab         *Tab            `xml:"w:tab,omitempty"` // Tab character
-	Break       *Break          `xml:"w:br,omitempty"`  // 分页符 / Page break
-	Drawing     *DrawingElement `xml:"w:drawing,omitempty"`
-	FieldChar   *FieldChar      `xml:"w:fldChar,omitempty"`
-	InstrText   *InstrText      `xml:"w:instrText,omitempty"`
-	RawElements []*RawElement   `xml:"-"` // Raw XML elements (mc:AlternateContent, etc.)
+	XMLName      xml.Name           `xml:"w:r"`
+	Properties   *RunProperties     `xml:"w:rPr,omitempty"`
+	Text         Text               `xml:"w:t,omitempty"`
+	Tab          *Tab               `xml:"w:tab,omitempty"` // Tab character
+	Break        *Break             `xml:"w:br,omitempty"`  // 分页符 / Page break
+	Drawing      *DrawingElement    `xml:"w:drawing,omitempty"`
+	FieldChar    *FieldChar         `xml:"w:fldChar,omitempty"`
+	InstrText    *InstrText         `xml:"w:instrText,omitempty"`
+	FootnoteRef  *FootnoteReference `xml:"-"` // Footnote reference (serialized manually)
+	EndnoteRef   *EndnoteReference  `xml:"-"` // Endnote reference (serialized manually)
+	RawElements  []*RawElement      `xml:"-"` // Raw XML elements (mc:AlternateContent, etc.)
 }
 
 // Tab represents a tab character in Word
@@ -234,6 +236,20 @@ func (r *Run) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	// 序列化RunProperties（如果存在）
 	if r.Properties != nil {
 		if err := e.EncodeElement(r.Properties, xml.StartElement{Name: xml.Name{Local: "w:rPr"}}); err != nil {
+			return err
+		}
+	}
+
+	// 序列化FootnoteRef（如果存在）- must come immediately after rPr
+	if r.FootnoteRef != nil {
+		if err := e.EncodeElement(r.FootnoteRef, xml.StartElement{Name: xml.Name{Local: "w:footnoteReference"}}); err != nil {
+			return err
+		}
+	}
+
+	// 序列化EndnoteRef（如果存在）- must come immediately after rPr
+	if r.EndnoteRef != nil {
+		if err := e.EncodeElement(r.EndnoteRef, xml.StartElement{Name: xml.Name{Local: "w:endnoteReference"}}); err != nil {
 			return err
 		}
 	}
@@ -299,6 +315,7 @@ func (r *Run) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 // 注意：字段顺序必须符合OpenXML标准，w:rFonts必须在w:color之前
 type RunProperties struct {
 	XMLName    xml.Name     `xml:"w:rPr"`
+	RStyle     *RStyle      `xml:"w:rStyle,omitempty"` // Character style reference
 	FontFamily *FontFamily  `xml:"w:rFonts,omitempty"`
 	Bold       *Bold        `xml:"w:b,omitempty"`
 	BoldCs     *BoldCs      `xml:"w:bCs,omitempty"`
@@ -312,6 +329,12 @@ type RunProperties struct {
 	Highlight  *Highlight   `xml:"w:highlight,omitempty"`
 	Shd        *RunShading  `xml:"w:shd,omitempty"`
 	VertAlign  *VertAlign   `xml:"w:vertAlign,omitempty"` // Subscript/Superscript
+}
+
+// RStyle references a character style by name
+type RStyle struct {
+	XMLName xml.Name `xml:"w:rStyle"`
+	Val     string   `xml:"w:val,attr"`
 }
 
 // VertAlign 垂直对齐（上标/下标）
@@ -3149,6 +3172,20 @@ func (d *Document) parseRun(decoder *xml.Decoder, startElement xml.StartElement)
 					return nil, err
 				}
 				run.Drawing = drawing
+			case "footnoteReference":
+				// Parse footnote reference
+				id := getAttributeValue(t.Attr, "id")
+				run.FootnoteRef = &FootnoteReference{ID: id}
+				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+					return nil, err
+				}
+			case "endnoteReference":
+				// Parse endnote reference
+				id := getAttributeValue(t.Attr, "id")
+				run.EndnoteRef = &EndnoteReference{ID: id}
+				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+					return nil, err
+				}
 			default:
 				// Capture unknown elements as raw XML (e.g., mc:AlternateContent for shapes)
 				rawElem, err := captureRawElement(decoder, t)
@@ -3178,6 +3215,14 @@ func (d *Document) parseRunProperties(decoder *xml.Decoder, run *Run) error {
 		switch t := token.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "rStyle":
+				val := getAttributeValue(t.Attr, "val")
+				if val != "" {
+					run.Properties.RStyle = &RStyle{Val: val}
+				}
+				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+					return err
+				}
 			case "b":
 				run.Properties.Bold = &Bold{}
 				if err := d.skipElement(decoder, t.Name.Local); err != nil {
@@ -3254,6 +3299,14 @@ func (d *Document) parseRunProperties(decoder *xml.Decoder, run *Run) error {
 					EastAsia: eastAsia,
 					CS:       cs,
 					Hint:     hint,
+				}
+				if err := d.skipElement(decoder, t.Name.Local); err != nil {
+					return err
+				}
+			case "vertAlign":
+				val := getAttributeValue(t.Attr, "val")
+				if val != "" {
+					run.Properties.VertAlign = &VertAlign{Val: val}
 				}
 				if err := d.skipElement(decoder, t.Name.Local); err != nil {
 					return err
