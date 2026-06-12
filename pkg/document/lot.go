@@ -255,7 +255,7 @@ func (d *Document) GenerateLOT(config *LOTConfig) error {
 		config = DefaultLOTConfig()
 	}
 
-	return d.generateListOfCaptions(config)
+	return d.generateListOfCaptions(config, false)
 }
 
 // GenerateLOF generates a List of Figures at the specified position
@@ -264,11 +264,12 @@ func (d *Document) GenerateLOF(config *LOTConfig) error {
 		config = DefaultLOFConfig()
 	}
 
-	return d.generateListOfCaptions(config)
+	return d.generateListOfCaptions(config, true)
 }
 
 // generateListOfCaptions generates a list (LOT or LOF) based on SEQ fields
-func (d *Document) generateListOfCaptions(config *LOTConfig) error {
+// isLOF indicates if this is a List of Figures (should be placed after LOT)
+func (d *Document) generateListOfCaptions(config *LOTConfig, isLOF bool) error {
 	// Collect all captions with the specified SEQ identifier
 	entries := d.collectCaptions(config.SeqIdentifier)
 
@@ -283,16 +284,47 @@ func (d *Document) generateListOfCaptions(config *LOTConfig) error {
 	// Determine insert position
 	insertIndex := config.InsertPosition
 	if insertIndex < 0 {
-		// Auto: insert after TOC if exists, otherwise at beginning
-		_, tocIndex := d.findTOCSDT()
-		if tocIndex >= 0 {
-			// Find the page break after TOC and insert after it
-			insertIndex = tocIndex + 2 // After TOC SDT and page break
-			if insertIndex > len(d.Body.Elements) {
-				insertIndex = len(d.Body.Elements)
+		if isLOF {
+			// For LOF: insert after the last "Table of Figures" SDT (which is the LOT)
+			// plus any page break after it
+			lotIndex := d.findLastTableOfFiguresSDT()
+			if lotIndex >= 0 {
+				// Check if there's a page break after the LOT
+				insertIndex = lotIndex + 1
+				if insertIndex < len(d.Body.Elements) {
+					if para, ok := d.Body.Elements[insertIndex].(*Paragraph); ok {
+						if len(para.Runs) > 0 && para.Runs[0].Break != nil && para.Runs[0].Break.Type == "page" {
+							insertIndex++ // Skip the page break
+						}
+					}
+				}
+				if insertIndex > len(d.Body.Elements) {
+					insertIndex = len(d.Body.Elements)
+				}
+			} else {
+				// No LOT found, fall back to after TOC
+				_, tocIndex := d.findTOCSDT()
+				if tocIndex >= 0 {
+					insertIndex = tocIndex + 2
+					if insertIndex > len(d.Body.Elements) {
+						insertIndex = len(d.Body.Elements)
+					}
+				} else {
+					insertIndex = 0
+				}
 			}
 		} else {
-			insertIndex = 0
+			// For LOT: insert after TOC if exists, otherwise at beginning
+			_, tocIndex := d.findTOCSDT()
+			if tocIndex >= 0 {
+				// Find the page break after TOC and insert after it
+				insertIndex = tocIndex + 2 // After TOC SDT and page break
+				if insertIndex > len(d.Body.Elements) {
+					insertIndex = len(d.Body.Elements)
+				}
+			} else {
+				insertIndex = 0
+			}
 		}
 	}
 
@@ -308,6 +340,28 @@ func (d *Document) generateListOfCaptions(config *LOTConfig) error {
 	}
 
 	return nil
+}
+
+// findLastTableOfFiguresSDT finds the last "Table of Figures" SDT element (used for LOT/LOF)
+func (d *Document) findLastTableOfFiguresSDT() int {
+	if d.Body == nil || d.Body.Elements == nil {
+		return -1
+	}
+
+	lastIndex := -1
+	for i, element := range d.Body.Elements {
+		if sdt, ok := element.(*SDT); ok {
+			if sdt.Properties != nil && sdt.Properties.DocPartObj != nil {
+				if sdt.Properties.DocPartObj.DocPartGallery != nil {
+					if strings.Contains(sdt.Properties.DocPartObj.DocPartGallery.Val, "Table of Figures") {
+						lastIndex = i
+					}
+				}
+			}
+		}
+	}
+
+	return lastIndex
 }
 
 // collectCaptions collects all captions with the specified SEQ identifier from tracked bookmarks

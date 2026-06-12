@@ -2017,20 +2017,34 @@ func (d *Document) ConvertDefaultToFirstPageHeaderFooter() error {
 // HasDefaultFooter checks if the document has a default footer defined
 func (d *Document) HasDefaultFooter() bool {
 	sectPr := d.getSectionPropertiesForHeaderFooter()
-	if sectPr != nil && sectPr.FooterReferences != nil {
-		for _, ref := range sectPr.FooterReferences {
-			if ref.Type == string(HeaderFooterTypeDefault) {
-				// Verify the footer file actually exists
-				if d.documentRelationships != nil {
-					for _, rel := range d.documentRelationships.Relationships {
-						if rel.ID == ref.ID {
-							footerPartName := "word/" + rel.Target
-							if _, exists := d.parts[footerPartName]; exists {
-								return true
-							}
+	if sectPr == nil {
+		fmt.Printf("[HasDefaultFooter] No section properties found\n")
+		return false
+	}
+	
+	if sectPr.FooterReferences == nil || len(sectPr.FooterReferences) == 0 {
+		fmt.Printf("[HasDefaultFooter] No footer references in section properties\n")
+		return false
+	}
+	
+	fmt.Printf("[HasDefaultFooter] Found %d footer references\n", len(sectPr.FooterReferences))
+	for _, ref := range sectPr.FooterReferences {
+		fmt.Printf("[HasDefaultFooter] Footer ref: type=%s, id=%s\n", ref.Type, ref.ID)
+		if ref.Type == string(HeaderFooterTypeDefault) {
+			// Verify the footer file actually exists
+			if d.documentRelationships != nil {
+				for _, rel := range d.documentRelationships.Relationships {
+					if rel.ID == ref.ID {
+						footerPartName := "word/" + rel.Target
+						fmt.Printf("[HasDefaultFooter] Checking for part: %s\n", footerPartName)
+						if _, exists := d.parts[footerPartName]; exists {
+							fmt.Printf("[HasDefaultFooter] Found default footer!\n")
+							return true
 						}
 					}
 				}
+			} else {
+				fmt.Printf("[HasDefaultFooter] No document relationships loaded\n")
 			}
 		}
 	}
@@ -2040,20 +2054,34 @@ func (d *Document) HasDefaultFooter() bool {
 // HasDefaultHeader checks if the document has a default header defined
 func (d *Document) HasDefaultHeader() bool {
 	sectPr := d.getSectionPropertiesForHeaderFooter()
-	if sectPr != nil && sectPr.HeaderReferences != nil {
-		for _, ref := range sectPr.HeaderReferences {
-			if ref.Type == string(HeaderFooterTypeDefault) {
-				// Verify the header file actually exists
-				if d.documentRelationships != nil {
-					for _, rel := range d.documentRelationships.Relationships {
-						if rel.ID == ref.ID {
-							headerPartName := "word/" + rel.Target
-							if _, exists := d.parts[headerPartName]; exists {
-								return true
-							}
+	if sectPr == nil {
+		fmt.Printf("[HasDefaultHeader] No section properties found\n")
+		return false
+	}
+	
+	if sectPr.HeaderReferences == nil || len(sectPr.HeaderReferences) == 0 {
+		fmt.Printf("[HasDefaultHeader] No header references in section properties\n")
+		return false
+	}
+	
+	fmt.Printf("[HasDefaultHeader] Found %d header references\n", len(sectPr.HeaderReferences))
+	for _, ref := range sectPr.HeaderReferences {
+		fmt.Printf("[HasDefaultHeader] Header ref: type=%s, id=%s\n", ref.Type, ref.ID)
+		if ref.Type == string(HeaderFooterTypeDefault) {
+			// Verify the header file actually exists
+			if d.documentRelationships != nil {
+				for _, rel := range d.documentRelationships.Relationships {
+					if rel.ID == ref.ID {
+						headerPartName := "word/" + rel.Target
+						fmt.Printf("[HasDefaultHeader] Checking for part: %s\n", headerPartName)
+						if _, exists := d.parts[headerPartName]; exists {
+							fmt.Printf("[HasDefaultHeader] Found default header!\n")
+							return true
 						}
 					}
 				}
+			} else {
+				fmt.Printf("[HasDefaultHeader] No document relationships loaded\n")
 			}
 		}
 	}
