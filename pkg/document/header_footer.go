@@ -1980,6 +1980,86 @@ func (d *Document) HasFirstPageHeader() bool {
 	return false
 }
 
+// ConvertDefaultToFirstPageHeaderFooter converts existing default header/footer to first-page type
+// This is useful when enabling "Different First Page" mode on a document that already has
+// header/footer content (like a portada) that should only appear on the first page
+func (d *Document) ConvertDefaultToFirstPageHeaderFooter() error {
+	sectPr := d.getSectionPropertiesForHeaderFooter()
+	if sectPr == nil {
+		return nil // No section properties, nothing to convert
+	}
+
+	// Convert default header to first-page header
+	if sectPr.HeaderReferences != nil {
+		for i, ref := range sectPr.HeaderReferences {
+			if ref.Type == string(HeaderFooterTypeDefault) {
+				// Change the type to first
+				sectPr.HeaderReferences[i].Type = string(HeaderFooterTypeFirst)
+				fmt.Printf("[Document] Converted default header (rId=%s) to first-page header\n", ref.ID)
+			}
+		}
+	}
+
+	// Convert default footer to first-page footer
+	if sectPr.FooterReferences != nil {
+		for i, ref := range sectPr.FooterReferences {
+			if ref.Type == string(HeaderFooterTypeDefault) {
+				// Change the type to first
+				sectPr.FooterReferences[i].Type = string(HeaderFooterTypeFirst)
+				fmt.Printf("[Document] Converted default footer (rId=%s) to first-page footer\n", ref.ID)
+			}
+		}
+	}
+
+	return nil
+}
+
+// HasDefaultFooter checks if the document has a default footer defined
+func (d *Document) HasDefaultFooter() bool {
+	sectPr := d.getSectionPropertiesForHeaderFooter()
+	if sectPr != nil && sectPr.FooterReferences != nil {
+		for _, ref := range sectPr.FooterReferences {
+			if ref.Type == string(HeaderFooterTypeDefault) {
+				// Verify the footer file actually exists
+				if d.documentRelationships != nil {
+					for _, rel := range d.documentRelationships.Relationships {
+						if rel.ID == ref.ID {
+							footerPartName := "word/" + rel.Target
+							if _, exists := d.parts[footerPartName]; exists {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// HasDefaultHeader checks if the document has a default header defined
+func (d *Document) HasDefaultHeader() bool {
+	sectPr := d.getSectionPropertiesForHeaderFooter()
+	if sectPr != nil && sectPr.HeaderReferences != nil {
+		for _, ref := range sectPr.HeaderReferences {
+			if ref.Type == string(HeaderFooterTypeDefault) {
+				// Verify the header file actually exists
+				if d.documentRelationships != nil {
+					for _, rel := range d.documentRelationships.Relationships {
+						if rel.ID == ref.ID {
+							headerPartName := "word/" + rel.Target
+							if _, exists := d.parts[headerPartName]; exists {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 // CalculateImageDimensionsWithAspectRatio calculates image dimensions maintaining aspect ratio
 // Given the original image dimensions and a target width, returns the width and height in mm
 // that maintain the original aspect ratio
