@@ -1993,6 +1993,10 @@ func (d *Document) ConvertDefaultToFirstPageHeaderFooter() error {
 	if sectPr.HeaderReferences != nil {
 		for i, ref := range sectPr.HeaderReferences {
 			if ref.Type == string(HeaderFooterTypeDefault) {
+				// Copy the header file to first-page filename and update references
+				if err := d.copyHeaderFooterToFirstPage(ref.ID, true); err != nil {
+					fmt.Printf("[Document] Warning: failed to copy header file: %v\n", err)
+				}
 				// Change the type to first
 				sectPr.HeaderReferences[i].Type = string(HeaderFooterTypeFirst)
 				fmt.Printf("[Document] Converted default header (rId=%s) to first-page header\n", ref.ID)
@@ -2004,12 +2008,83 @@ func (d *Document) ConvertDefaultToFirstPageHeaderFooter() error {
 	if sectPr.FooterReferences != nil {
 		for i, ref := range sectPr.FooterReferences {
 			if ref.Type == string(HeaderFooterTypeDefault) {
+				// Copy the footer file to first-page filename and update references
+				if err := d.copyHeaderFooterToFirstPage(ref.ID, false); err != nil {
+					fmt.Printf("[Document] Warning: failed to copy footer file: %v\n", err)
+				}
 				// Change the type to first
 				sectPr.FooterReferences[i].Type = string(HeaderFooterTypeFirst)
 				fmt.Printf("[Document] Converted default footer (rId=%s) to first-page footer\n", ref.ID)
 			}
 		}
 	}
+
+	return nil
+}
+
+// copyHeaderFooterToFirstPage copies a header/footer file to the first-page filename
+// and updates the relationship target. This prevents the original file from being
+// overwritten when a new default header/footer is created.
+func (d *Document) copyHeaderFooterToFirstPage(relID string, isHeader bool) error {
+	if d.documentRelationships == nil {
+		return fmt.Errorf("no document relationships")
+	}
+
+	// Find the relationship
+	var relIndex int = -1
+	var oldTarget string
+	for i, rel := range d.documentRelationships.Relationships {
+		if rel.ID == relID {
+			relIndex = i
+			oldTarget = rel.Target
+			break
+		}
+	}
+
+	if relIndex == -1 {
+		return fmt.Errorf("relationship %s not found", relID)
+	}
+
+	// Determine the new filename
+	var newTarget string
+	if isHeader {
+		newTarget = "headerfirst.xml"
+	} else {
+		newTarget = "footerfirst.xml"
+	}
+
+	// Copy the file content
+	oldPartName := "word/" + oldTarget
+	newPartName := "word/" + newTarget
+
+	if d.parts != nil {
+		if content, exists := d.parts[oldPartName]; exists {
+			// Copy the content to the new filename
+			d.parts[newPartName] = make([]byte, len(content))
+			copy(d.parts[newPartName], content)
+			fmt.Printf("[Document] Copied %s to %s\n", oldPartName, newPartName)
+
+			// Also copy any associated rels file
+			oldRelsName := "word/_rels/" + oldTarget + ".rels"
+			newRelsName := "word/_rels/" + newTarget + ".rels"
+			if relsContent, relsExists := d.parts[oldRelsName]; relsExists {
+				d.parts[newRelsName] = make([]byte, len(relsContent))
+				copy(d.parts[newRelsName], relsContent)
+				fmt.Printf("[Document] Copied %s to %s\n", oldRelsName, newRelsName)
+			}
+		}
+	}
+
+	// Update the relationship target
+	d.documentRelationships.Relationships[relIndex].Target = newTarget
+	fmt.Printf("[Document] Updated relationship %s target from %s to %s\n", relID, oldTarget, newTarget)
+
+	// Add content type for the new file if needed
+	typeStr := "footer"
+	if isHeader {
+		typeStr = "header"
+	}
+	d.addContentType(newPartName, fmt.Sprintf("application/vnd.openxmlformats-officedocument.wordprocessingml.%s+xml", typeStr))
 
 	return nil
 }
