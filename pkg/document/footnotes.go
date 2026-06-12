@@ -827,9 +827,19 @@ func (d *Document) SetUpdateFieldsOnOpen(enabled bool) error {
 // merging documents that contain footnotes with complex formatting, hyperlinks, etc.
 // The function handles ID conflicts by keeping the source footnotes (since they are
 // referenced by the content being merged).
+// Deprecated: Use MergeFootnotesFromWithRemap for proper ID remapping support.
 func (d *Document) MergeFootnotesFrom(source *Document) {
+	d.MergeFootnotesFromWithRemap(source)
+}
+
+// MergeFootnotesFromWithRemap merges footnotes and endnotes from another document into this document.
+// Returns a map of old footnote IDs to new footnote IDs for updating references in the document body.
+// This is the preferred method when merging documents as it properly handles ID conflicts.
+func (d *Document) MergeFootnotesFromWithRemap(source *Document) map[string]string {
+	footnoteIDMap := make(map[string]string)
+
 	if source == nil || source.parts == nil {
-		return
+		return footnoteIDMap
 	}
 
 	// Merge footnotes.xml
@@ -841,15 +851,19 @@ func (d *Document) MergeFootnotesFrom(source *Document) {
 			// Destination has no footnotes, just copy source
 			d.parts["word/footnotes.xml"] = make([]byte, len(sourceFootnotes))
 			copy(d.parts["word/footnotes.xml"], sourceFootnotes)
-			fmt.Printf("[Document.MergeFootnotesFrom] Copied footnotes.xml from source (no existing footnotes)\n")
+			fmt.Printf("[Document.MergeFootnotesFromWithRemap] Copied footnotes.xml from source (no existing footnotes)\n")
 
 			// Ensure footnotes relationship exists
 			d.ensureFootnotesRelationship()
+			// No remapping needed when copying directly
 		} else {
-			// Both have footnotes - merge them by extracting footnote elements
-			merged := mergeFootnotesXML(string(destFootnotes), string(sourceFootnotes))
+			// Both have footnotes - merge them with ID remapping
+			merged, idMap := mergeFootnotesXMLWithRemap(string(destFootnotes), string(sourceFootnotes))
 			d.parts["word/footnotes.xml"] = []byte(merged)
-			fmt.Printf("[Document.MergeFootnotesFrom] Merged footnotes.xml from source\n")
+			for k, v := range idMap {
+				footnoteIDMap[k] = v
+			}
+			fmt.Printf("[Document.MergeFootnotesFromWithRemap] Merged footnotes.xml, remapped %d IDs\n", len(idMap))
 		}
 	}
 
@@ -862,15 +876,19 @@ func (d *Document) MergeFootnotesFrom(source *Document) {
 			// Destination has no endnotes, just copy source
 			d.parts["word/endnotes.xml"] = make([]byte, len(sourceEndnotes))
 			copy(d.parts["word/endnotes.xml"], sourceEndnotes)
-			fmt.Printf("[Document.MergeFootnotesFrom] Copied endnotes.xml from source (no existing endnotes)\n")
+			fmt.Printf("[Document.MergeFootnotesFromWithRemap] Copied endnotes.xml from source (no existing endnotes)\n")
 
 			// Ensure endnotes relationship exists
 			d.ensureEndnotesRelationship()
 		} else {
-			// Both have endnotes - merge them
-			merged := mergeEndnotesXML(string(destEndnotes), string(sourceEndnotes))
+			// Both have endnotes - merge them with ID remapping
+			merged, idMap := mergeEndnotesXMLWithRemap(string(destEndnotes), string(sourceEndnotes))
 			d.parts["word/endnotes.xml"] = []byte(merged)
-			fmt.Printf("[Document.MergeFootnotesFrom] Merged endnotes.xml from source\n")
+			// Endnote IDs are prefixed with "e" to distinguish from footnotes
+			for k, v := range idMap {
+				footnoteIDMap["e"+k] = "e" + v
+			}
+			fmt.Printf("[Document.MergeFootnotesFromWithRemap] Merged endnotes.xml, remapped %d IDs\n", len(idMap))
 		}
 	}
 
@@ -882,14 +900,16 @@ func (d *Document) MergeFootnotesFrom(source *Document) {
 		if !hasDestFootnotesRels || len(destFootnotesRels) == 0 {
 			d.parts["word/_rels/footnotes.xml.rels"] = make([]byte, len(sourceFootnotesRels))
 			copy(d.parts["word/_rels/footnotes.xml.rels"], sourceFootnotesRels)
-			fmt.Printf("[Document.MergeFootnotesFrom] Copied footnotes.xml.rels from source\n")
+			fmt.Printf("[Document.MergeFootnotesFromWithRemap] Copied footnotes.xml.rels from source\n")
 		} else {
 			// Merge relationships
 			merged := mergeRelationshipsXML(string(destFootnotesRels), string(sourceFootnotesRels))
 			d.parts["word/_rels/footnotes.xml.rels"] = []byte(merged)
-			fmt.Printf("[Document.MergeFootnotesFrom] Merged footnotes.xml.rels from source\n")
+			fmt.Printf("[Document.MergeFootnotesFromWithRemap] Merged footnotes.xml.rels from source\n")
 		}
 	}
+
+	return footnoteIDMap
 }
 
 // ensureFootnotesRelationship ensures the document has a relationship to footnotes.xml
@@ -929,52 +949,97 @@ func (d *Document) ensureEndnotesRelationship() {
 // mergeFootnotesXML merges two footnotes.xml contents, keeping all unique footnotes
 // This uses string manipulation to preserve the original XML formatting and namespaces
 func mergeFootnotesXML(dest, source string) string {
+	merged, _ := mergeFootnotesXMLWithRemap(dest, source)
+	return merged
+}
+
+// mergeFootnotesXMLWithRemap merges two footnotes.xml contents with ID remapping
+// Returns the merged XML and a map of old IDs to new IDs
+func mergeFootnotesXMLWithRemap(dest, source string) (string, map[string]string) {
+	idMap := make(map[string]string)
+
+	// Find the highest footnote ID in destination
+	highestID := findHighestFootnoteID(dest)
+
 	// Extract individual footnote elements from source (excluding separators which have type attribute)
-	// We want to find <w:footnote w:id="N"> elements where N >= 1
 	sourceFootnotes := extractFootnoteElements(source)
 
 	if len(sourceFootnotes) == 0 {
-		return dest // No footnotes to merge
+		return dest, idMap // No footnotes to merge
 	}
 
 	// Find the closing </w:footnotes> tag in destination
 	closingTag := "</w:footnotes>"
 	closingIdx := findLastIndex(dest, closingTag)
 	if closingIdx == -1 {
-		return dest // Invalid XML, return as-is
+		return dest, idMap // Invalid XML, return as-is
 	}
 
-	// Insert source footnotes before the closing tag
+	// Insert source footnotes before the closing tag, remapping IDs
 	result := dest[:closingIdx]
 	for _, fn := range sourceFootnotes {
-		result += fn
+		// Extract the old ID
+		oldID := extractFootnoteID(fn)
+		if oldID == "" {
+			continue
+		}
+
+		// Generate new ID
+		highestID++
+		newID := strconv.Itoa(highestID)
+		idMap[oldID] = newID
+
+		// Replace the ID in the footnote element
+		remappedFn := replaceFootnoteID(fn, oldID, newID)
+		result += remappedFn
 	}
 	result += dest[closingIdx:]
 
-	return result
+	return result, idMap
 }
 
 // mergeEndnotesXML merges two endnotes.xml contents
 func mergeEndnotesXML(dest, source string) string {
+	merged, _ := mergeEndnotesXMLWithRemap(dest, source)
+	return merged
+}
+
+// mergeEndnotesXMLWithRemap merges two endnotes.xml contents with ID remapping
+func mergeEndnotesXMLWithRemap(dest, source string) (string, map[string]string) {
+	idMap := make(map[string]string)
+
+	// Find the highest endnote ID in destination
+	highestID := findHighestEndnoteID(dest)
+
 	sourceEndnotes := extractEndnoteElements(source)
 
 	if len(sourceEndnotes) == 0 {
-		return dest
+		return dest, idMap
 	}
 
 	closingTag := "</w:endnotes>"
 	closingIdx := findLastIndex(dest, closingTag)
 	if closingIdx == -1 {
-		return dest
+		return dest, idMap
 	}
 
 	result := dest[:closingIdx]
 	for _, en := range sourceEndnotes {
-		result += en
+		oldID := extractEndnoteID(en)
+		if oldID == "" {
+			continue
+		}
+
+		highestID++
+		newID := strconv.Itoa(highestID)
+		idMap[oldID] = newID
+
+		remappedEn := replaceEndnoteID(en, oldID, newID)
+		result += remappedEn
 	}
 	result += dest[closingIdx:]
 
-	return result
+	return result, idMap
 }
 
 // mergeRelationshipsXML merges two .rels XML files
@@ -1149,4 +1214,115 @@ func findLastIndex(s, substr string) int {
 
 func containsString(s, substr string) bool {
 	return findIndex(s, substr) != -1
+}
+
+// findHighestFootnoteID finds the highest footnote ID in the XML
+func findHighestFootnoteID(xml string) int {
+	highest := 0
+	searchStart := 0
+
+	for {
+		// Find w:id=" in footnote context
+		idAttr := `w:id="`
+		idIdx := findIndex(xml[searchStart:], idAttr)
+		if idIdx == -1 {
+			break
+		}
+		idIdx += searchStart + len(idAttr)
+
+		// Find the closing quote
+		endIdx := findIndex(xml[idIdx:], `"`)
+		if endIdx == -1 {
+			break
+		}
+
+		idStr := xml[idIdx : idIdx+endIdx]
+		if id, err := strconv.Atoi(idStr); err == nil && id > highest {
+			highest = id
+		}
+
+		searchStart = idIdx + endIdx
+	}
+
+	return highest
+}
+
+// findHighestEndnoteID finds the highest endnote ID in the XML
+func findHighestEndnoteID(xml string) int {
+	return findHighestFootnoteID(xml) // Same logic
+}
+
+// extractFootnoteID extracts the ID from a footnote element
+func extractFootnoteID(element string) string {
+	idAttr := `w:id="`
+	idIdx := findIndex(element, idAttr)
+	if idIdx == -1 {
+		return ""
+	}
+	idIdx += len(idAttr)
+
+	endIdx := findIndex(element[idIdx:], `"`)
+	if endIdx == -1 {
+		return ""
+	}
+
+	return element[idIdx : idIdx+endIdx]
+}
+
+// extractEndnoteID extracts the ID from an endnote element
+func extractEndnoteID(element string) string {
+	return extractFootnoteID(element) // Same logic
+}
+
+// replaceFootnoteID replaces the ID in a footnote element
+func replaceFootnoteID(element, oldID, newID string) string {
+	oldAttr := `w:id="` + oldID + `"`
+	newAttr := `w:id="` + newID + `"`
+
+	// Simple string replacement
+	result := ""
+	searchStart := 0
+	for {
+		idx := findIndex(element[searchStart:], oldAttr)
+		if idx == -1 {
+			result += element[searchStart:]
+			break
+		}
+		result += element[searchStart : searchStart+idx]
+		result += newAttr
+		searchStart += idx + len(oldAttr)
+	}
+
+	return result
+}
+
+// replaceEndnoteID replaces the ID in an endnote element
+func replaceEndnoteID(element, oldID, newID string) string {
+	return replaceFootnoteID(element, oldID, newID) // Same logic
+}
+
+// UpdateFootnoteReferences updates footnote reference IDs in a paragraph based on the ID map
+func UpdateFootnoteReferences(element interface{}, footnoteIDMap map[string]string) {
+	if len(footnoteIDMap) == 0 {
+		return
+	}
+
+	switch e := element.(type) {
+	case *Paragraph:
+		for i := range e.Runs {
+			if e.Runs[i].FootnoteRef != nil {
+				oldID := e.Runs[i].FootnoteRef.ID
+				if newID, ok := footnoteIDMap[oldID]; ok {
+					e.Runs[i].FootnoteRef.ID = newID
+				}
+			}
+			if e.Runs[i].EndnoteRef != nil {
+				oldID := "e" + e.Runs[i].EndnoteRef.ID
+				if newID, ok := footnoteIDMap[oldID]; ok {
+					// Remove the "e" prefix
+					e.Runs[i].EndnoteRef.ID = newID[1:]
+				}
+			}
+		}
+	}
 }

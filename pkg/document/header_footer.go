@@ -1918,3 +1918,100 @@ func createStyledHeaderWithImageXML(imageRId string, widthEMU, heightEMU int64, 
   </w:p>
 </w:hdr>`, widthEMU, heightEMU, imageName, imageRId, widthEMU, heightEMU)
 }
+
+// HasFirstPageFooter checks if the document already has a first-page footer defined
+// This is useful to avoid overwriting existing portada footers
+func (d *Document) HasFirstPageFooter() bool {
+	// Check section properties for first-page footer reference
+	sectPr := d.getSectionPropertiesForHeaderFooter()
+	if sectPr != nil && sectPr.FooterReferences != nil {
+		for _, ref := range sectPr.FooterReferences {
+			if ref.Type == string(HeaderFooterTypeFirst) {
+				// Verify the footer file actually exists
+				if d.documentRelationships != nil {
+					for _, rel := range d.documentRelationships.Relationships {
+						if rel.ID == ref.ID {
+							footerPartName := "word/" + rel.Target
+							if _, exists := d.parts[footerPartName]; exists {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// Also check for footerfirst.xml directly in parts
+	if _, exists := d.parts["word/footerfirst.xml"]; exists {
+		return true
+	}
+	
+	return false
+}
+
+// HasFirstPageHeader checks if the document already has a first-page header defined
+func (d *Document) HasFirstPageHeader() bool {
+	// Check section properties for first-page header reference
+	sectPr := d.getSectionPropertiesForHeaderFooter()
+	if sectPr != nil && sectPr.HeaderReferences != nil {
+		for _, ref := range sectPr.HeaderReferences {
+			if ref.Type == string(HeaderFooterTypeFirst) {
+				// Verify the header file actually exists
+				if d.documentRelationships != nil {
+					for _, rel := range d.documentRelationships.Relationships {
+						if rel.ID == ref.ID {
+							headerPartName := "word/" + rel.Target
+							if _, exists := d.parts[headerPartName]; exists {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// Also check for headerfirst.xml directly in parts
+	if _, exists := d.parts["word/headerfirst.xml"]; exists {
+		return true
+	}
+	
+	return false
+}
+
+// CalculateImageDimensionsWithAspectRatio calculates image dimensions maintaining aspect ratio
+// Given the original image dimensions and a target width, returns the width and height in mm
+// that maintain the original aspect ratio
+func CalculateImageDimensionsWithAspectRatio(originalWidthPx, originalHeightPx int, targetWidthMM float64) (widthMM, heightMM float64) {
+	if originalWidthPx <= 0 || originalHeightPx <= 0 {
+		return targetWidthMM, targetWidthMM // Fallback to square
+	}
+	
+	aspectRatio := float64(originalHeightPx) / float64(originalWidthPx)
+	widthMM = targetWidthMM
+	heightMM = targetWidthMM * aspectRatio
+	
+	return widthMM, heightMM
+}
+
+// CalculateImageDimensionsWithMaxHeight calculates image dimensions with a maximum height constraint
+// Given the original image dimensions, target width, and max height, returns dimensions that
+// maintain aspect ratio while not exceeding the max height
+func CalculateImageDimensionsWithMaxHeight(originalWidthPx, originalHeightPx int, targetWidthMM, maxHeightMM float64) (widthMM, heightMM float64) {
+	if originalWidthPx <= 0 || originalHeightPx <= 0 {
+		return targetWidthMM, maxHeightMM // Fallback
+	}
+	
+	aspectRatio := float64(originalHeightPx) / float64(originalWidthPx)
+	widthMM = targetWidthMM
+	heightMM = targetWidthMM * aspectRatio
+	
+	// If height exceeds max, scale down based on height
+	if heightMM > maxHeightMM {
+		heightMM = maxHeightMM
+		widthMM = maxHeightMM / aspectRatio
+	}
+	
+	return widthMM, heightMM
+}

@@ -89,7 +89,7 @@ func DefaultLOFConfig() *LOTConfig {
 }
 
 // GEAReportLOTConfig returns LOT configuration matching GEA report styling
-// Uses Barlow SemiBold for title, green color #2B7132, 20pt title, 11pt entries
+// Uses Barlow SemiBold for title, green color #2B7132, 18pt title, 10pt entries with Univers font
 func GEAReportLOTConfig(title string, seqIdentifier string) *LOTConfig {
 	return &LOTConfig{
 		Title:           title,
@@ -99,10 +99,10 @@ func GEAReportLOTConfig(title string, seqIdentifier string) *LOTConfig {
 		UseHyperlink:    true,
 		DotLeader:       true,
 		InsertPosition:  -1,
-		FontFamily:      "Calibri",         // Entry font
-		TitleFontFamily: "Barlow SemiBold", // Title font
-		FontSize:        11,                // 11pt for entries
-		TitleFontSize:   20,                // 20pt for title (40 half-points)
+		FontFamily:      "Univers",         // Entry font - Univers 10pt
+		TitleFontFamily: "Barlow SemiBold", // Title font - Barlow SemiBold 18pt
+		FontSize:        10,                // 10pt for entries
+		TitleFontSize:   18,                // 18pt for title (36 half-points)
 		TitleColor:      "2B7132",          // Green color
 		TitleBold:       true,
 		TabPosition:     9629,              // Right tab position

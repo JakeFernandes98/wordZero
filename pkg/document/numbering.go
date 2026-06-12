@@ -438,3 +438,286 @@ func (d *Document) RestartNumbering(numID string) {
 		d.updateNumberingFile()
 	}
 }
+
+// MergeNumberingFrom merges numbering definitions from another document into this document.
+// This preserves bullet points and numbered lists when combining documents.
+// Returns a map of old numId values to new numId values for updating paragraph references.
+func (d *Document) MergeNumberingFrom(source *Document) map[string]string {
+	if source == nil || source.parts == nil {
+		return nil
+	}
+
+	numIDMap := make(map[string]string)
+
+	// Get source numbering.xml
+	sourceNumberingData, hasSourceNumbering := source.parts["word/numbering.xml"]
+	if !hasSourceNumbering || len(sourceNumberingData) == 0 {
+		return numIDMap
+	}
+
+	// Get destination numbering.xml
+	destNumberingData, hasDestNumbering := d.parts["word/numbering.xml"]
+
+	if !hasDestNumbering || len(destNumberingData) == 0 {
+		// Destination has no numbering, just copy source numbering
+		d.parts["word/numbering.xml"] = make([]byte, len(sourceNumberingData))
+		copy(d.parts["word/numbering.xml"], sourceNumberingData)
+		fmt.Printf("[Document.MergeNumberingFrom] Copied numbering.xml from source (no existing numbering)\n")
+
+		// Ensure numbering relationship exists
+		d.ensureNumberingRelationship()
+		return numIDMap // No remapping needed
+	}
+
+	// Both have numbering - merge them
+	merged, idMap := mergeNumberingXML(string(destNumberingData), string(sourceNumberingData))
+	d.parts["word/numbering.xml"] = []byte(merged)
+	fmt.Printf("[Document.MergeNumberingFrom] Merged numbering.xml, remapped %d numIds\n", len(idMap))
+
+	return idMap
+}
+
+// ensureNumberingRelationship ensures the document has a relationship to numbering.xml
+func (d *Document) ensureNumberingRelationship() {
+	if d.documentRelationships == nil {
+		return
+	}
+
+	// Check if relationship already exists
+	for _, rel := range d.documentRelationships.Relationships {
+		if rel.Type == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" {
+			return // Already exists
+		}
+	}
+
+	// Add the relationship
+	d.addNumberingRelationship()
+}
+
+// mergeNumberingXML merges two numbering.xml contents
+// Returns the merged XML and a map of old numId to new numId
+func mergeNumberingXML(dest, source string) (string, map[string]string) {
+	numIDMap := make(map[string]string)
+
+	// Find the highest abstractNumId and numId in destination
+	highestAbstractNumID := findHighestID(dest, `w:abstractNumId="`, `"`)
+	highestNumID := findHighestID(dest, `w:numId="`, `"`)
+
+	// Extract abstractNum elements from source
+	sourceAbstractNums := extractNumberingElements(source, "<w:abstractNum ", "</w:abstractNum>")
+	sourceNumInstances := extractNumberingElements(source, "<w:num ", "</w:num>")
+
+	if len(sourceAbstractNums) == 0 && len(sourceNumInstances) == 0 {
+		return dest, numIDMap // Nothing to merge
+	}
+
+	// Map old abstractNumId to new abstractNumId
+	abstractNumIDMap := make(map[string]string)
+
+	// Process abstractNum elements - remap IDs
+	remappedAbstractNums := make([]string, 0, len(sourceAbstractNums))
+	for _, abstractNum := range sourceAbstractNums {
+		oldID := extractAttributeValue(abstractNum, `w:abstractNumId="`, `"`)
+		if oldID == "" {
+			continue
+		}
+
+		highestAbstractNumID++
+		newID := strconv.Itoa(highestAbstractNumID)
+		abstractNumIDMap[oldID] = newID
+
+		// Replace the abstractNumId in the element
+		remapped := replaceAttributeValue(abstractNum, `w:abstractNumId="`, `"`, newID)
+		remappedAbstractNums = append(remappedAbstractNums, remapped)
+	}
+
+	// Process num elements - remap numId and abstractNumId references
+	remappedNumInstances := make([]string, 0, len(sourceNumInstances))
+	for _, numInstance := range sourceNumInstances {
+		oldNumID := extractAttributeValue(numInstance, `w:numId="`, `"`)
+		if oldNumID == "" {
+			continue
+		}
+
+		highestNumID++
+		newNumID := strconv.Itoa(highestNumID)
+		numIDMap[oldNumID] = newNumID
+
+		// Replace the numId
+		remapped := replaceAttributeValue(numInstance, `w:numId="`, `"`, newNumID)
+
+		// Also update the abstractNumId reference inside
+		oldAbstractRef := extractAttributeValue(remapped, `<w:abstractNumId w:val="`, `"`)
+		if oldAbstractRef != "" {
+			if newAbstractRef, ok := abstractNumIDMap[oldAbstractRef]; ok {
+				remapped = replaceAttributeValue(remapped, `<w:abstractNumId w:val="`, `"`, newAbstractRef)
+			}
+		}
+
+		remappedNumInstances = append(remappedNumInstances, remapped)
+	}
+
+	// Insert the remapped elements into destination
+	// Find the closing </w:numbering> tag
+	closingTag := "</w:numbering>"
+	closingIdx := findLastIndexStr(dest, closingTag)
+	if closingIdx == -1 {
+		return dest, numIDMap // Invalid XML
+	}
+
+	// Build the merged content
+	// abstractNum elements should come before num elements
+	var insertContent string
+
+	// Find where to insert abstractNums (before first <w:num or before </w:numbering>)
+	numStartIdx := findIndexStr(dest, "<w:num ")
+	if numStartIdx == -1 {
+		numStartIdx = closingIdx
+	}
+
+	// Insert abstractNums
+	for _, abstractNum := range remappedAbstractNums {
+		insertContent += "\n  " + abstractNum
+	}
+
+	// Insert at the right position
+	result := dest[:numStartIdx] + insertContent
+
+	// Now add the num instances before closing tag
+	remainingDest := dest[numStartIdx:closingIdx]
+	result += remainingDest
+
+	for _, numInstance := range remappedNumInstances {
+		result += "\n  " + numInstance
+	}
+
+	result += "\n" + dest[closingIdx:]
+
+	return result, numIDMap
+}
+
+// findHighestID finds the highest numeric ID value for a given attribute pattern
+func findHighestID(xml, prefix, suffix string) int {
+	highest := 0
+	searchStart := 0
+
+	for {
+		prefixIdx := findIndexStr(xml[searchStart:], prefix)
+		if prefixIdx == -1 {
+			break
+		}
+		prefixIdx += searchStart + len(prefix)
+
+		suffixIdx := findIndexStr(xml[prefixIdx:], suffix)
+		if suffixIdx == -1 {
+			break
+		}
+
+		idStr := xml[prefixIdx : prefixIdx+suffixIdx]
+		if id, err := strconv.Atoi(idStr); err == nil {
+			if id > highest {
+				highest = id
+			}
+		}
+
+		searchStart = prefixIdx + suffixIdx
+	}
+
+	return highest
+}
+
+// extractNumberingElements extracts elements matching the given start and end tags
+func extractNumberingElements(xml, startTag, endTag string) []string {
+	var results []string
+	searchStart := 0
+
+	for {
+		startIdx := findIndexStr(xml[searchStart:], startTag)
+		if startIdx == -1 {
+			break
+		}
+		startIdx += searchStart
+
+		endIdx := findIndexStr(xml[startIdx:], endTag)
+		if endIdx == -1 {
+			break
+		}
+		endIdx += startIdx + len(endTag)
+
+		element := xml[startIdx:endIdx]
+		results = append(results, element)
+
+		searchStart = endIdx
+	}
+
+	return results
+}
+
+// extractAttributeValue extracts the value between prefix and suffix
+func extractAttributeValue(xml, prefix, suffix string) string {
+	prefixIdx := findIndexStr(xml, prefix)
+	if prefixIdx == -1 {
+		return ""
+	}
+	prefixIdx += len(prefix)
+
+	suffixIdx := findIndexStr(xml[prefixIdx:], suffix)
+	if suffixIdx == -1 {
+		return ""
+	}
+
+	return xml[prefixIdx : prefixIdx+suffixIdx]
+}
+
+// replaceAttributeValue replaces the value between prefix and suffix with newValue
+func replaceAttributeValue(xml, prefix, suffix, newValue string) string {
+	prefixIdx := findIndexStr(xml, prefix)
+	if prefixIdx == -1 {
+		return xml
+	}
+	prefixIdx += len(prefix)
+
+	suffixIdx := findIndexStr(xml[prefixIdx:], suffix)
+	if suffixIdx == -1 {
+		return xml
+	}
+
+	return xml[:prefixIdx] + newValue + xml[prefixIdx+suffixIdx:]
+}
+
+// findIndexStr finds the first occurrence of substr in s
+func findIndexStr(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+// findLastIndexStr finds the last occurrence of substr in s
+func findLastIndexStr(s, substr string) int {
+	for i := len(s) - len(substr); i >= 0; i-- {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+// UpdateParagraphNumberingReferences updates numId references in paragraphs based on the ID map
+func UpdateParagraphNumberingReferences(element interface{}, numIDMap map[string]string) {
+	if len(numIDMap) == 0 {
+		return
+	}
+
+	switch e := element.(type) {
+	case *Paragraph:
+		if e.Properties != nil && e.Properties.NumberingProperties != nil && e.Properties.NumberingProperties.NumID != nil {
+			oldID := e.Properties.NumberingProperties.NumID.Val
+			if newID, ok := numIDMap[oldID]; ok {
+				e.Properties.NumberingProperties.NumID.Val = newID
+			}
+		}
+	}
+}

@@ -144,7 +144,7 @@ func DefaultTOCConfig() *TOCConfig {
 }
 
 // GEAReportTOCConfig returns TOC configuration matching GEA report styling
-// Uses Barlow SemiBold for title, green color #2B7132, 20pt title, 11pt entries
+// Uses Barlow SemiBold for title, green color #2B7132, 18pt title, 10pt entries with Univers font
 func GEAReportTOCConfig(title string) *TOCConfig {
 	return &TOCConfig{
 		Title:           title,
@@ -154,16 +154,16 @@ func GEAReportTOCConfig(title string) *TOCConfig {
 		UseHyperlink:    true,
 		DotLeader:       true,
 		InsertPosition:  -1,
-		FontFamily:      "Calibri",        // Entry font
-		TitleFontFamily: "Barlow SemiBold", // Title font
-		FontSize:        11,               // 11pt for entries
-		TitleFontSize:   20,               // 20pt for title (40 half-points)
-		IndentPerLevel:  0,                // No indent for entries
-		TitleColor:      "2B7132",         // Green color
+		FontFamily:      "Univers",         // Entry font - Univers 10pt
+		TitleFontFamily: "Barlow SemiBold", // Title font - Barlow SemiBold 18pt
+		FontSize:        10,                // 10pt for entries
+		TitleFontSize:   18,                // 18pt for title (36 half-points)
+		IndentPerLevel:  0,                 // No indent for entries
+		TitleColor:      "2B7132",          // Green color
 		TitleBold:       true,
-		TabPosition:     9629,             // Right tab position
-		LineSpacing:     360,              // 1.5 line spacing
-		SpacingAfter:    340,              // Space after title
+		TabPosition:     9629,              // Right tab position
+		LineSpacing:     360,               // 1.5 line spacing
+		SpacingAfter:    340,               // Space after title
 	}
 }
 
