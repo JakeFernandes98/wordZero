@@ -2537,6 +2537,14 @@ func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *Tem
 		}
 	}
 
+	// Track runs with non-text content (footnotes, endnotes, etc.) that must be preserved
+	// These runs have no text but contain important references
+	type nonTextRun struct {
+		afterRunIndex int  // Index of the text run this should appear after (-1 for beginning)
+		run           Run  // The run to preserve
+	}
+	var nonTextRuns []nonTextRun
+
 	// 首先识别所有变量占位符的位置
 	fullText := ""
 	runInfos := make([]struct {
@@ -2546,6 +2554,7 @@ func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *Tem
 	}, 0)
 
 	currentIndex := 0
+	lastTextRunIndex := -1
 	for i := range para.Runs {
 		runText := para.Runs[i].Text.Content
 		if runText != "" {
@@ -2560,6 +2569,18 @@ func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *Tem
 			})
 			fullText += runText
 			currentIndex += len(runText)
+			lastTextRunIndex = len(runInfos) - 1
+		} else {
+			// Check if this run has non-text content that should be preserved
+			// (footnote references, endnote references, breaks, tabs, drawings, raw elements)
+			run := para.Runs[i]
+			if run.FootnoteRef != nil || run.EndnoteRef != nil || run.Break != nil ||
+				run.Tab != nil || run.Drawing != nil || len(run.RawElements) > 0 {
+				nonTextRuns = append(nonTextRuns, nonTextRun{
+					afterRunIndex: lastTextRunIndex,
+					run:           run,
+				})
+			}
 		}
 	}
 
@@ -2586,6 +2607,8 @@ func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *Tem
 		te.setSpacePreserveIfNeeded(&newRun)
 		para.Runs = []Run{newRun}
 		fullText = processedText
+		// Note: non-text runs are lost when loop changes occur, as the paragraph is completely rebuilt
+		// This is acceptable as loops typically don't contain footnote references
 	}
 
 	// 使用新的逐个变量替换方法
@@ -2593,7 +2616,32 @@ func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *Tem
 
 	// 如果有变化，更新段落的Run
 	if hasVarChanges || hasLoopChanges {
-		para.Runs = newRuns
+		// Reinsert non-text runs at their appropriate positions
+		if len(nonTextRuns) > 0 && !hasLoopChanges {
+			// Build a map of where to insert non-text runs
+			// afterRunIndex -> list of runs to insert after that index
+			insertMap := make(map[int][]Run)
+			for _, ntr := range nonTextRuns {
+				insertMap[ntr.afterRunIndex] = append(insertMap[ntr.afterRunIndex], ntr.run)
+			}
+
+			// Rebuild runs with non-text runs inserted
+			var finalRuns []Run
+			// First, add any runs that should appear at the beginning (afterRunIndex == -1)
+			if runsToInsert, ok := insertMap[-1]; ok {
+				finalRuns = append(finalRuns, runsToInsert...)
+			}
+			for i, run := range newRuns {
+				finalRuns = append(finalRuns, run)
+				// Add any non-text runs that should appear after this run
+				if runsToInsert, ok := insertMap[i]; ok {
+					finalRuns = append(finalRuns, runsToInsert...)
+				}
+			}
+			para.Runs = finalRuns
+		} else {
+			para.Runs = newRuns
+		}
 	}
 
 	return nil
