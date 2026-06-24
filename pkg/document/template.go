@@ -2521,6 +2521,12 @@ func (te *TemplateEngine) replaceVariablesInTableWithData(table *Table, itemMap 
 }
 
 // replaceVariablesInParagraph 在段落中替换变量（改进版本，更好地保持样式）
+type templateRunInfo struct {
+	startIndex int
+	endIndex   int
+	run        *Run
+}
+
 func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *TemplateData) error {
 	// Process raw elements in runs (for shapes, text boxes, etc.)
 	for i := range para.Runs {
@@ -2539,27 +2545,25 @@ func (te *TemplateEngine) replaceVariablesInParagraph(para *Paragraph, data *Tem
 
 	// 首先识别所有变量占位符的位置
 	fullText := ""
-	runInfos := make([]struct {
-		startIndex int
-		endIndex   int
-		run        *Run
-	}, 0)
+	runInfos := make([]templateRunInfo, 0)
 
 	currentIndex := 0
 	for i := range para.Runs {
 		runText := para.Runs[i].Text.Content
 		if runText != "" {
-			runInfos = append(runInfos, struct {
-				startIndex int
-				endIndex   int
-				run        *Run
-			}{
+			runInfos = append(runInfos, templateRunInfo{
 				startIndex: currentIndex,
 				endIndex:   currentIndex + len(runText),
 				run:        &para.Runs[i],
 			})
 			fullText += runText
 			currentIndex += len(runText)
+		} else if te.runHasNonTextContent(&para.Runs[i]) {
+			runInfos = append(runInfos, templateRunInfo{
+				startIndex: currentIndex,
+				endIndex:   currentIndex,
+				run:        &para.Runs[i],
+			})
 		}
 	}
 
@@ -2651,11 +2655,7 @@ func (te *TemplateEngine) processNonTableLoops(content string, data *TemplateDat
 }
 
 // replaceVariablesSequentially 逐个替换变量，保持样式
-func (te *TemplateEngine) replaceVariablesSequentially(originalRunInfos []struct {
-	startIndex int
-	endIndex   int
-	run        *Run
-}, originalText string, data *TemplateData) ([]Run, bool) {
+func (te *TemplateEngine) replaceVariablesSequentially(originalRunInfos []templateRunInfo, originalText string, data *TemplateData) ([]Run, bool) {
 
 	// 找到所有变量位置
 	varPattern := regexp.MustCompile(`\{\{(\w+)\}\}`)
@@ -2695,7 +2695,13 @@ func (te *TemplateEngine) replaceVariablesSequentially(originalRunInfos []struct
 				newRun.Text.Content = replacementText
 				// Always preserve whitespace in replaced text
 				newRun.Text.Space = "preserve"
+				te.clearNonTextContent(&newRun)
 				newRuns = append(newRuns, newRun)
+				if te.runHasNonTextContent(varRun) {
+					nonTextRun := te.cloneRun(varRun)
+					nonTextRun.Text.Content = ""
+					newRuns = append(newRuns, nonTextRun)
+				}
 				hasChanges = true
 			}
 		} else {
@@ -2717,6 +2723,11 @@ func (te *TemplateEngine) replaceVariablesSequentially(originalRunInfos []struct
 		afterText := originalText[currentPos:]
 		afterRuns := te.extractRunsForSegment(originalRunInfos, currentPos, len(originalText), afterText)
 		newRuns = append(newRuns, afterRuns...)
+	}
+	for _, runInfo := range originalRunInfos {
+		if runInfo.startIndex == len(originalText) && runInfo.endIndex == len(originalText) && te.runHasNonTextContent(runInfo.run) {
+			newRuns = append(newRuns, te.cloneRun(runInfo.run))
+		}
 	}
 
 	// 如果没有找到任何变量但文本发生了变化，处理条件语句
@@ -2758,11 +2769,7 @@ func (te *TemplateEngine) processConditionalsPreservingRuns(runs []Run, data *Te
 }
 
 // processConditionals 处理条件语句
-func (te *TemplateEngine) processConditionals(originalRunInfos []struct {
-	startIndex int
-	endIndex   int
-	run        *Run
-}, originalText string, data *TemplateData) ([]Run, bool) {
+func (te *TemplateEngine) processConditionals(originalRunInfos []templateRunInfo, originalText string, data *TemplateData) ([]Run, bool) {
 
 	processedText := te.renderConditionals(originalText, data.Conditions)
 
@@ -2793,14 +2800,17 @@ func (te *TemplateEngine) processConditionals(originalRunInfos []struct {
 }
 
 // extractRunsForSegment 为文本片段提取相应的Run（改进版本）
-func (te *TemplateEngine) extractRunsForSegment(originalRunInfos []struct {
-	startIndex int
-	endIndex   int
-	run        *Run
-}, segmentStart, segmentEnd int, segmentText string) []Run {
+func (te *TemplateEngine) extractRunsForSegment(originalRunInfos []templateRunInfo, segmentStart, segmentEnd int, segmentText string) []Run {
 	runs := make([]Run, 0)
 
 	for _, runInfo := range originalRunInfos {
+		if runInfo.startIndex == runInfo.endIndex && te.runHasNonTextContent(runInfo.run) {
+			if runInfo.startIndex >= segmentStart && runInfo.startIndex < segmentEnd {
+				runs = append(runs, te.cloneRun(runInfo.run))
+			}
+			continue
+		}
+
 		// 检查Run是否与文本段有重叠
 		if runInfo.endIndex > segmentStart && runInfo.startIndex < segmentEnd {
 			overlapStart := max(runInfo.startIndex, segmentStart)
@@ -2830,13 +2840,9 @@ func (te *TemplateEngine) extractRunsForSegment(originalRunInfos []struct {
 }
 
 // findRunForPosition 找到覆盖指定位置的Run
-func (te *TemplateEngine) findRunForPosition(originalRunInfos []struct {
-	startIndex int
-	endIndex   int
-	run        *Run
-}, position int) *Run {
+func (te *TemplateEngine) findRunForPosition(originalRunInfos []templateRunInfo, position int) *Run {
 	for _, runInfo := range originalRunInfos {
-		if position >= runInfo.startIndex && position < runInfo.endIndex {
+		if runInfo.endIndex > runInfo.startIndex && position >= runInfo.startIndex && position < runInfo.endIndex {
 			return runInfo.run
 		}
 	}
@@ -2845,6 +2851,34 @@ func (te *TemplateEngine) findRunForPosition(originalRunInfos []struct {
 		return originalRunInfos[0].run
 	}
 	return nil
+}
+
+func (te *TemplateEngine) runHasNonTextContent(run *Run) bool {
+	if run == nil {
+		return false
+	}
+	return run.Tab != nil ||
+		run.Break != nil ||
+		run.Drawing != nil ||
+		run.FieldChar != nil ||
+		run.InstrText != nil ||
+		run.FootnoteRef != nil ||
+		run.EndnoteRef != nil ||
+		len(run.RawElements) > 0
+}
+
+func (te *TemplateEngine) clearNonTextContent(run *Run) {
+	if run == nil {
+		return
+	}
+	run.Tab = nil
+	run.Break = nil
+	run.Drawing = nil
+	run.FieldChar = nil
+	run.InstrText = nil
+	run.FootnoteRef = nil
+	run.EndnoteRef = nil
+	run.RawElements = nil
 }
 
 // max 返回两个整数中的较大值
@@ -3044,54 +3078,54 @@ func (te *TemplateEngine) renderTableTemplate(table *Table, data *TemplateData) 
 							}
 						}
 
-					if templateRun != nil {
-						newRun := te.cloneRun(templateRun)
-						newRun.Text.Content = content
-						te.setSpacePreserveIfNeeded(&newRun)
-						newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
-					} else {
-						// 使用第一个Run但确保基本样式
-						newRun := te.cloneRun(&originalRuns[0])
-						newRun.Text.Content = content
-						te.setSpacePreserveIfNeeded(&newRun)
-						// 确保基本的字体设置
-						if newRun.Properties == nil {
-							newRun.Properties = &RunProperties{}
+						if templateRun != nil {
+							newRun := te.cloneRun(templateRun)
+							newRun.Text.Content = content
+							te.setSpacePreserveIfNeeded(&newRun)
+							newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
+						} else {
+							// 使用第一个Run但确保基本样式
+							newRun := te.cloneRun(&originalRuns[0])
+							newRun.Text.Content = content
+							te.setSpacePreserveIfNeeded(&newRun)
+							// 确保基本的字体设置
+							if newRun.Properties == nil {
+								newRun.Properties = &RunProperties{}
+							}
+							if newRun.Properties.FontFamily == nil {
+								newRun.Properties.FontFamily = &FontFamily{
+									ASCII:    "仿宋",
+									HAnsi:    "仿宋",
+									EastAsia: "仿宋",
+								}
+							}
+							newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
 						}
-						if newRun.Properties.FontFamily == nil {
-							newRun.Properties.FontFamily = &FontFamily{
-								ASCII:    "仿宋",
-								HAnsi:    "仿宋",
-								EastAsia: "仿宋",
+					} else {
+						// 如果没有原始Run，创建新的但尝试继承段落样式
+						newRun := Run{
+							Text: Text{Content: content},
+							Properties: &RunProperties{
+								FontFamily: &FontFamily{
+									ASCII:    "仿宋",
+									HAnsi:    "仿宋",
+									EastAsia: "仿宋",
+								},
+								Bold: &Bold{},
+							},
+						}
+						te.setSpacePreserveIfNeeded(&newRun)
+
+						// 如果段落有默认的Run属性，尝试继承
+						if len(templateRow.Cells) > i && len(templateRow.Cells[i].Paragraphs) > j {
+							templatePara := &templateRow.Cells[i].Paragraphs[j]
+							if len(templatePara.Runs) > 0 && templatePara.Runs[0].Properties != nil {
+								newRun.Properties = te.cloneRunProperties(templatePara.Runs[0].Properties)
 							}
 						}
+
 						newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
 					}
-				} else {
-					// 如果没有原始Run，创建新的但尝试继承段落样式
-					newRun := Run{
-						Text: Text{Content: content},
-						Properties: &RunProperties{
-							FontFamily: &FontFamily{
-								ASCII:    "仿宋",
-								HAnsi:    "仿宋",
-								EastAsia: "仿宋",
-							},
-							Bold: &Bold{},
-						},
-					}
-					te.setSpacePreserveIfNeeded(&newRun)
-
-					// 如果段落有默认的Run属性，尝试继承
-					if len(templateRow.Cells) > i && len(templateRow.Cells[i].Paragraphs) > j {
-						templatePara := &templateRow.Cells[i].Paragraphs[j]
-						if len(templatePara.Runs) > 0 && templatePara.Runs[0].Properties != nil {
-							newRun.Properties = te.cloneRunProperties(templatePara.Runs[0].Properties)
-						}
-					}
-
-					newRow.Cells[i].Paragraphs[j].Runs = []Run{newRun}
-				}
 				}
 
 				// 处理嵌套表格中的变量替换

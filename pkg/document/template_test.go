@@ -68,6 +68,47 @@ func TestTemplateVariableReplacement(t *testing.T) {
 	}
 }
 
+func TestReplaceVariablesPreservesFootnoteRuns(t *testing.T) {
+	engine := NewTemplateEngine()
+	data := NewTemplateData()
+	data.SetVariable("absorciones", "1.234")
+
+	para := &Paragraph{
+		Runs: []Run{
+			{Text: Text{Content: "Equivalente a {{absorciones}} encinas (Quercus "}},
+			{Text: Text{Content: "Ilex"}},
+			{
+				Properties:  &RunProperties{RStyle: &RStyle{Val: "FootnoteReference"}},
+				FootnoteRef: &FootnoteReference{ID: "1"},
+			},
+			{Text: Text{Content: ")."}},
+		},
+	}
+
+	if err := engine.replaceVariablesInParagraph(para, data); err != nil {
+		t.Fatalf("replaceVariablesInParagraph failed: %v", err)
+	}
+
+	foundFootnote := false
+	for _, run := range para.Runs {
+		if run.FootnoteRef != nil && run.FootnoteRef.ID == "1" {
+			foundFootnote = true
+			break
+		}
+	}
+	if !foundFootnote {
+		t.Fatalf("expected footnote reference to survive variable replacement, runs: %#v", para.Runs)
+	}
+
+	var text strings.Builder
+	for _, run := range para.Runs {
+		text.WriteString(run.Text.Content)
+	}
+	if got, want := text.String(), "Equivalente a 1.234 encinas (Quercus Ilex)."; got != want {
+		t.Fatalf("unexpected paragraph text: got %q want %q", got, want)
+	}
+}
+
 // TestTemplateConditionalStatements 测试条件语句功能
 func TestTemplateConditionalStatements(t *testing.T) {
 	engine := NewTemplateEngine()
